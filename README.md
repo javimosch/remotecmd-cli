@@ -62,17 +62,53 @@ remotecmd-cli add-target --name my-node --token <token>
 remotecmd-cli --target my-node --cmd 'echo "Hello from remotecmd!"' --timeout 30
 ```
 
+### Streaming Output
+
+For real-time output (useful for long-running commands, logs, etc.), add the `--stream` flag:
+
+```bash
+remotecmd-cli --target my-node --cmd 'tail -f /var/log/syslog' --stream --timeout 60
+```
+
+Without `--stream`, output is buffered and returned after command completion. With `--stream`, output is printed line-by-line as it's produced.
+
+### 4. (Optional) Install Convenience Aliases
+
+For shorter commands, install the convenience aliases:
+
+```bash
+remotecmd-cli alias install
+```
+
+This creates four aliases:
+- `rc` - Direct alias to remotecmd-cli (full access)
+- `rcx <target> <cmd> [timeout]` - Execute command (default 10s timeout)
+- `rcl` - List configured targets
+- `rcs <target>` - Check daemon status
+
+Example usage with aliases:
+```bash
+rcl                                    # List targets
+rcx my-node 'hostname'                  # Execute command
+rcx my-node 'uptime' 15                 # With custom timeout
+rcs my-node                            # Check daemon status
+```
+
 ## Commands
 
 ```
 EXECUTE:
-  remotecmd-cli --target <name> --cmd <command>  Execute command on remote target
+  remotecmd-cli --target <name> --cmd <command> [--stream]  Execute command on remote target (add --stream for real-time output)
 
 CONFIGURATION:
   remotecmd-cli add-target --name <n> --token <t>    Add a known target
   remotecmd-cli remove-target --name <n>              Remove a target
   remotecmd-cli list-targets                          List configured targets
   remotecmd-cli set-relay --url <u> --name <n>        Configure relay connection
+
+ALIAS:
+  remotecmd-cli alias install                         Install convenience aliases
+  remotecmd-cli alias uninstall                       Remove installed aliases
 
 RELAY:
   remotecmd-cli relay daemon start [--port 3032]     Start relay hub

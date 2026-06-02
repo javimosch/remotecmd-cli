@@ -24,8 +24,10 @@ Use `remotecmd-cli` directly on any machine where it's installed:
 
 ### Execute commands
 ```
-remotecmd-cli --target <name> --cmd '<command>' --timeout 30
+remotecmd-cli --target <name> --cmd '<command>' --timeout 30 [--stream]
 ```
+
+**Streaming mode**: Add `--stream` flag to see output in real-time as it's produced (useful for long-running commands, logs, etc.). Without `--stream`, output is buffered and returned after command completion.
 
 ### Target daemon management (on remote machine)
 ```
@@ -50,12 +52,24 @@ remotecmd-cli list-targets                              # list configured target
 remotecmd-cli version                                    # show version
 ```
 
+### Alias Management
+```
+remotecmd-cli alias install                             # install convenience aliases (rc, rcx, rcl, rcs)
+remotecmd-cli alias uninstall                           # remove installed aliases
+```
+
+**Convenience Aliases** (after running `remotecmd-cli alias install`):
+- `rc` - Direct alias to remotecmd-cli (full access to all commands)
+- `rcx <target> <cmd> [timeout]` - Execute command on target (default 10s timeout)
+- `rcl` - List all configured targets
+- `rcs <target>` - Check remotecmd daemon status on target
+
 ## Channel — Supercli Plugin
 
 If the supercli remotecmd plugin is installed, use `sc remotecmd`:
 
 ```
-sc remotecmd exec run --target <name> --cmd "<command>" --timeout <s>
+sc remotecmd exec run --target <name> --cmd "<command>" --timeout <s> [--stream]
 sc remotecmd daemon start [--token <t>] [--daemon]
 sc remotecmd daemon stop
 sc remotecmd daemon status
@@ -109,7 +123,8 @@ All command execution returns JSON:
 1. Start relay hub on a central machine
 2. Start daemon on target machine with token
 3. Configure client with relay URL and target token
-4. Execute commands remotely
+4. **(Optional)** Install convenience aliases: `remotecmd-cli alias install`
+5. Execute commands remotely (use `rcx <target> <cmd>` for shorter syntax if aliases installed)
 
 ## Troubleshooting
 

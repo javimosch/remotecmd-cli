@@ -35,6 +35,8 @@ func main() {
 		handleRelaySubcommand(os.Args[2:])
 	case "daemon":
 		handleDaemonSubcommand(os.Args[2:])
+	case "alias":
+		handleAliasSubcommand(os.Args[2:])
 	case "version":
 		fmt.Println("remotecmd-cli version", Version)
 	case "help", "--help", "-h":
@@ -272,6 +274,10 @@ CONFIGURATION:
   remotecmd-cli remove-target --name <n>              Remove a target
   remotecmd-cli list-targets                          List configured targets
   remotecmd-cli set-relay --url <u> --name <n>        Configure relay connection
+
+ALIAS:
+  remotecmd-cli alias install                         Install convenience aliases (rc, rcx, rcl, rcs)
+  remotecmd-cli alias uninstall                       Remove installed aliases
 
 RELAY (run on relay hub machine, e.g. dk1):
   remotecmd-cli relay daemon start [--port 3032]     Start relay hub (foreground)

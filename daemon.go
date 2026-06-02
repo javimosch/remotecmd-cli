@@ -80,6 +80,7 @@ func (td *TargetDaemon) run() {
 			log.Printf("Registered as %q", msg.Name)
 
 		case "command":
+			log.Printf("Received command (id=%s, stream=%v): %s", msg.ID, msg.Stream, msg.Cmd)
 			go td.executeCommand(&msg)
 
 		case "error":
