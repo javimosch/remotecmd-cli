@@ -93,7 +93,22 @@ cd remotecmd-cli && go build -o remotecmd-cli .
 
 ## Quick Start
 
-### Step 1 — Start a relay
+### Option A: Via SuperCLI (recommended for agents)
+
+```bash
+# Discover remotecmd capability
+supercli discover --intent "remotecmd" --human
+
+# Install as SuperCLI plugin
+supercli plugins install remotecmd-cli
+
+# Execute commands
+supercli remotecmd execute --target myserver --cmd 'uptime'
+```
+
+### Option B: Standalone binary
+
+#### Step 1 — Start a relay
 
 On any VPS or machine reachable by both sides:
 

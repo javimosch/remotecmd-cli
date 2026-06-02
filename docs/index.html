@@ -221,16 +221,31 @@
             <span class="ml-2 text-xs text-slate-600">terminal</span>
           </div>
           <div class="code-block p-4">
-            <div><span class="comment"># Add a machine with one command</span></div>
-            <div><span class="prompt">$</span> <span class="cmd">remotecmd-cli</span> <span class="flag">pair listen</span> <span class="flag">--name</span> <span class="val">myserver</span></div>
-            <div class="mt-2 text-slate-600">Waiting for peer to connect...</div>
-            <div class="mt-1 text-slate-600">  curl -sSL .../install.sh | sh -s -- --relay ... --code <span class="val">a1b2c3d4</span></div>
-            <div class="mt-3 output">✓ Peer connected! Target "myserver" added</div>
-            <div class="mt-3"><span class="comment"># Run a command on it</span></div>
-            <div><span class="prompt">$</span> <span class="cmd">remotecmd-cli</span> <span class="flag">--target</span> <span class="val">myserver</span> <span class="flag">--cmd</span> <span class="val">'uptime'</span></div>
-            <div class="mt-1 output">{ "ok": true, "stdout": "up 42 days...", "duration_ms": 9 }</div>
+            <div><span class="comment"># Quick start via SuperCLI</span></div>
+            <div><span class="prompt">$</span> <span class="cmd">supercli discover</span> <span class="flag">--intent</span> <span class="val">"remotecmd"</span> <span class="flag">--human</span></div>
+            <div class="mt-2"><span class="prompt">$</span> <span class="cmd">supercli plugins install</span> <span class="val">remotecmd-cli</span></div>
+            <div class="mt-2"><span class="prompt">$</span> <span class="cmd">supercli remotecmd execute</span> <span class="flag">--target</span> <span class="val">myserver</span> <span class="flag">--cmd</span> <span class="val">'uptime'</span></div>
+            <div class="mt-3 output">{ "ok": true, "stdout": "up 42 days...", "duration_ms": 9 }</div>
           </div>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SuperCLI Quick Start -->
+  <section class="relative z-10 max-w-4xl mx-auto px-4 pb-32">
+    <div class="reveal bezel-outer" style="transition-delay:0ms">
+      <div class="bezel-inner">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="w-10 h-10 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-lg">⚡</div>
+          <h3 class="text-white font-semibold text-lg">Quick start via SuperCLI</h3>
+        </div>
+        <div class="code-block p-4 text-sm">
+          <div><span class="prompt">$</span> <span class="cmd">supercli discover</span> <span class="flag">--intent</span> <span class="val">"remotecmd"</span> <span class="flag">--human</span></div>
+          <div class="mt-2"><span class="prompt">$</span> <span class="cmd">supercli plugins install</span> <span class="val">remotecmd-cli</span></div>
+          <div class="mt-2"><span class="prompt">$</span> <span class="cmd">supercli remotecmd execute</span> <span class="flag">--target</span> <span class="val">myserver</span> <span class="flag">--cmd</span> <span class="val">'uptime'</span></div>
+        </div>
+        <p class="text-slate-500 text-xs mt-3">SuperCLI handles discovery, installation, and execution — no manual setup.</p>
       </div>
     </div>
   </section>
