@@ -324,3 +324,9 @@ DAEMON:
 ## License
 
 MIT — [Javier Leandro Arancibia](https://github.com/javimosch)
+
+## Support
+
+If remotecmd-cli saved you time, consider supporting the project:
+
+[![Support me on Ko-fi](https://storage.ko-fi.com/cdn/brandasset/v2/support_me_on_kofi_badge_beige.png)](https://ko-fi.com/javimosch)
