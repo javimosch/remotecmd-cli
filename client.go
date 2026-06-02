@@ -30,11 +30,17 @@ func handleExec(target, cmd string, timeout int, stream bool) error {
 	}
 	defer conn.Close()
 
+	// Resolve relay-registered name (may differ from local alias)
+	relayTarget := target
+	if tgt.RelayName != "" {
+		relayTarget = tgt.RelayName
+	}
+
 	id := newID()
 	req := &Message{
 		Type:    "execute",
 		ID:      id,
-		Target:  target,
+		Target:  relayTarget,
 		Token:   tgt.Token,
 		Cmd:     cmd,
 		Timeout: timeout,

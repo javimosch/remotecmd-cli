@@ -28,10 +28,11 @@ type pendingRequest struct {
 }
 
 type RelayServer struct {
-	port    int
-	clients map[string]*relayClient
-	pending map[string]*pendingRequest
-	mu      sync.RWMutex
+	port         int
+	clients      map[string]*relayClient
+	pending      map[string]*pendingRequest
+	pairListeners map[string]*relayClient // code -> waiting client
+	mu           sync.RWMutex
 }
 
 var upgrader = websocket.Upgrader{
@@ -40,9 +41,10 @@ var upgrader = websocket.Upgrader{
 
 func startRelay(port int) {
 	rs := &RelayServer{
-		port:    port,
-		clients: make(map[string]*relayClient),
-		pending: make(map[string]*pendingRequest),
+		port:          port,
+		clients:       make(map[string]*relayClient),
+		pending:       make(map[string]*pendingRequest),
+		pairListeners: make(map[string]*relayClient),
 	}
 
 	mux := http.NewServeMux()
@@ -183,6 +185,40 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 			pr.clientConn.send(&msg)
 			log.Printf("Result relayed for id=%s (ok=%v)", msg.ID, msg.OK)
 
+		case "pair_listen":
+			if msg.Code == "" {
+				rc.send(&Message{Type: "error", Error: "pair_listen requires code"})
+				continue
+			}
+			rs.mu.Lock()
+			rs.pairListeners[msg.Code] = rc
+			rs.mu.Unlock()
+			log.Printf("Pair listener registered for code %s", msg.Code)
+
+		case "pair":
+			if msg.Code == "" || msg.Token == "" {
+				rc.send(&Message{Type: "error", Error: "pair requires code and token"})
+				continue
+			}
+			rs.mu.Lock()
+			listener, ok := rs.pairListeners[msg.Code]
+			if ok {
+				delete(rs.pairListeners, msg.Code)
+			}
+			rs.mu.Unlock()
+			if !ok {
+				log.Printf("Pair code %s not found or already used", msg.Code)
+				rc.send(&Message{Type: "error", Error: "pair code not found or already used"})
+				continue
+			}
+			log.Printf("Pair code %s matched, notifying listener (hostname=%s)", msg.Code, msg.Hostname)
+			listener.send(&Message{
+				Type:     "pair_done",
+				Code:     msg.Code,
+				Token:    msg.Token,
+				Hostname: msg.Hostname,
+			})
+
 		default:
 			rc.send(&Message{Type: "error", Error: "unknown message type: " + msg.Type})
 		}
@@ -202,6 +238,13 @@ func (rs *RelayServer) unregister(rc *relayClient) {
 			delete(rs.pending, id)
 		}
 	}
+
+	for code, listener := range rs.pairListeners {
+		if listener == rc {
+			delete(rs.pairListeners, code)
+		}
+	}
+
 	log.Printf("Target disconnected: %s", rc.name)
 }
 

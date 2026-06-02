@@ -1,12 +1,13 @@
 package main
 
 import (
-	"bytes"
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -78,6 +79,7 @@ func (td *TargetDaemon) run() {
 		switch msg.Type {
 		case "registered":
 			log.Printf("Registered as %q", msg.Name)
+			go td.sendPairIfNeeded()
 
 		case "command":
 			log.Printf("Received command (id=%s, stream=%v): %s", msg.ID, msg.Stream, msg.Cmd)
@@ -222,6 +224,23 @@ func (td *TargetDaemon) send(msg *Message) {
 	if err := td.conn.WriteJSON(msg); err != nil {
 		log.Printf("Write error: %v", err)
 	}
+}
+
+func (td *TargetDaemon) sendPairIfNeeded() {
+	code, err := loadPairCode()
+	if err != nil || code == "" {
+		return
+	}
+	hostname, _ := os.Hostname()
+	log.Printf("Sending pair message (code=%s, hostname=%s)", code, hostname)
+	td.send(&Message{
+		Type:     "pair",
+		Code:     code,
+		Token:    td.token,
+		Hostname: hostname,
+	})
+	deletePairCode()
+	log.Printf("Pair code sent and removed")
 }
 
 

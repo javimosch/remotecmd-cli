@@ -23,6 +23,9 @@ type Message struct {
 	// Streaming fields
 	StreamName string `json:"stream_name,omitempty"` // "stdout" or "stderr"
 	Data       string `json:"data,omitempty"`
+	// Pairing fields
+	Code     string `json:"code,omitempty"`
+	Hostname string `json:"hostname,omitempty"`
 }
 
 func streamEndOK(id string, exitCode int, durationMs int64) *Message {

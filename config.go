@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type Config struct {
@@ -20,7 +21,8 @@ type RelayConfig struct {
 }
 
 type TargetConfig struct {
-	Token string `json:"token"`
+	Token    string `json:"token"`
+	RelayName string `json:"relay_name,omitempty"` // actual registered name on relay (if different from map key)
 }
 
 func configDir() string {
@@ -70,11 +72,15 @@ func saveConfig(cfg *Config) error {
 }
 
 func addTarget(name, token string) error {
+	return addTargetWithRelayName(name, token, "")
+}
+
+func addTargetWithRelayName(name, token, relayName string) error {
 	cfg, err := loadConfig()
 	if err != nil {
 		return err
 	}
-	cfg.Targets[name] = TargetConfig{Token: token}
+	cfg.Targets[name] = TargetConfig{Token: token, RelayName: relayName}
 	return saveConfig(cfg)
 }
 
@@ -113,6 +119,29 @@ func setRelay(url, name string) error {
 	}
 	cfg.Relay = RelayConfig{URL: url, Name: name}
 	return saveConfig(cfg)
+}
+
+func pairCodePath() string {
+	return filepath.Join(configDir(), "pair_code")
+}
+
+func savePairCode(code string) error {
+	if err := ensureConfigDir(); err != nil {
+		return err
+	}
+	return os.WriteFile(pairCodePath(), []byte(code), 0600)
+}
+
+func loadPairCode() (string, error) {
+	data, err := os.ReadFile(pairCodePath())
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
+func deletePairCode() {
+	os.Remove(pairCodePath())
 }
 
 func loadToken() (string, error) {

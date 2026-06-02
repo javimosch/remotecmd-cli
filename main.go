@@ -37,6 +37,8 @@ func main() {
 		handleDaemonSubcommand(os.Args[2:])
 	case "alias":
 		handleAliasSubcommand(os.Args[2:])
+	case "pair":
+		handlePairSubcommand(os.Args[2:])
 	case "version":
 		fmt.Println("remotecmd-cli version", Version)
 	case "help", "--help", "-h":
@@ -290,6 +292,9 @@ DAEMON (run on target machine, e.g. p22):
   remotecmd-cli daemon start --token <t> -daemon       Start target daemon (background)
   remotecmd-cli daemon stop                           Stop target daemon
   remotecmd-cli daemon status                         Check target daemon status
+
+PAIRING (add external targets):
+  remotecmd-cli pair listen [--name <n>] [--timeout <s>]  Wait for peer; prints one-liner to share
 
 OTHER:
   remotecmd-cli version    Show version
