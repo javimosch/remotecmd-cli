@@ -117,11 +117,38 @@ func createAliasWrapper(path, execPath string) error {
 
 func createRcxWrapper(path, execPath string) error {
 	content := fmt.Sprintf(`#!/bin/sh
+# rcx - Execute command on remote target via remotecmd
+# Usage: rcx <target> <command> [timeout]
+
+if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+    echo "rcx - Execute command on remote target"
+    echo ""
+    echo "Usage: rcx <target> <command> [timeout]"
+    echo ""
+    echo "Arguments:"
+    echo "  target    Target machine name (e.g., dk1, rbm20, p22)"
+    echo "  command   Shell command to execute (use quotes for complex commands)"
+    echo "  timeout   Optional timeout in seconds (default: 10)"
+    echo ""
+    echo "Examples:"
+    echo "  rcx dk1 'hostname'"
+    echo "  rcx rbm20 'uptime' 15"
+    echo "  rcx p22 'ls -la ~' 20"
+    echo ""
+    echo "Available targets: use 'rcl' to list configured targets"
+    exit 0
+fi
+
 if [ $# -lt 2 ]; then
+    echo "Error: target and command are required"
+    echo ""
     echo "Usage: rcx <target> <command> [timeout]"
     echo "Example: rcx dk1 'hostname' 10"
+    echo ""
+    echo "Use 'rcx --help' for more information"
     exit 1
 fi
+
 TARGET="$1"
 CMD="$2"
 TIMEOUT="${3:-10}"
@@ -131,17 +158,62 @@ exec %s --target "$TARGET" --cmd "$CMD" --timeout "$TIMEOUT"
 }
 
 func createRclWrapper(path, execPath string) error {
-	content := fmt.Sprintf("#!/bin/sh\nexec %s list-targets\n", execPath)
+	content := fmt.Sprintf(`#!/bin/sh
+# rcl - List configured remotecmd targets
+
+if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+    echo "rcl - List configured remotecmd targets"
+    echo ""
+    echo "Usage: rcl"
+    echo ""
+    echo "Lists all remote targets configured in ~/.remotecmd/config.json"
+    echo "Shows target names with truncated tokens for security"
+    echo ""
+    echo "Example output:"
+    echo "  dk1 (token: 5ab3...)"
+    echo "  rbm20 (token: a40c...)"
+    echo "  p22 (token: 6708...)"
+    exit 0
+fi
+
+exec %s list-targets
+`, execPath)
 	return os.WriteFile(path, []byte(content), 0755)
 }
 
 func createRcsWrapper(path, execPath string) error {
 	content := fmt.Sprintf(`#!/bin/sh
+# rcs - Check remotecmd daemon status on target
+
+if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+    echo "rcs - Check remotecmd daemon status on target"
+    echo ""
+    echo "Usage: rcs <target>"
+    echo ""
+    echo "Arguments:"
+    echo "  target    Target machine name to check"
+    echo ""
+    echo "Checks if remotecmd daemon is running on the target machine"
+    echo "by checking for remotecmd-cli processes via ps aux"
+    echo ""
+    echo "Example:"
+    echo "  rcs dk1"
+    echo "  rcs rbm20"
+    echo ""
+    echo "Available targets: use 'rcl' to list configured targets"
+    exit 0
+fi
+
 if [ $# -lt 1 ]; then
+    echo "Error: target is required"
+    echo ""
     echo "Usage: rcs <target>"
     echo "Example: rcs dk1"
+    echo ""
+    echo "Use 'rcs --help' for more information"
     exit 1
 fi
+
 TARGET="$1"
 exec %s --target "$TARGET" --cmd "ps aux | grep remotecmd-cli | grep -v grep" --timeout 10
 `, execPath)
