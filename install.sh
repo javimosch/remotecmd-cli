@@ -51,7 +51,7 @@ fi
 
 # --- Install binary ---
 mkdir -p "$INSTALL_DIR"
-TMP_BIN="${INSTALL_DIR}/${BIN}.tmp"
+TMP_BIN="/tmp/${BIN}.tmp.$$"
 
 echo "[remotecmd] Downloading $BIN ($OS/$ARCH)..."
 if command -v curl >/dev/null 2>&1; then
@@ -64,7 +64,8 @@ else
 fi
 
 chmod +x "$TMP_BIN"
-mv -f "$TMP_BIN" "${INSTALL_DIR}/${BIN}"
+# Replace atomically; works even if destination is on a different fs
+cp -f "$TMP_BIN" "${INSTALL_DIR}/${BIN}" && rm -f "$TMP_BIN"
 
 # Add to PATH if not already there
 case ":$PATH:" in
