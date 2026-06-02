@@ -39,20 +39,32 @@ esac
 ASSET="${BIN}-${OS}-${ARCH}"
 DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/${ASSET}"
 
+# --- Stop any running daemon before overwriting binary ---
+RCMD_EXISTING="${INSTALL_DIR}/${BIN}"
+if [ -x "$RCMD_EXISTING" ]; then
+  "$RCMD_EXISTING" daemon stop 2>/dev/null || true
+fi
+# Also stop systemd service if present
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl --user stop remotecmd.service 2>/dev/null || true
+fi
+
 # --- Install binary ---
 mkdir -p "$INSTALL_DIR"
+TMP_BIN="${INSTALL_DIR}/${BIN}.tmp"
 
 echo "[remotecmd] Downloading $BIN ($OS/$ARCH)..."
 if command -v curl >/dev/null 2>&1; then
-  curl -sSL "$DOWNLOAD_URL" -o "${INSTALL_DIR}/${BIN}"
+  curl -sSL "$DOWNLOAD_URL" -o "$TMP_BIN"
 elif command -v wget >/dev/null 2>&1; then
-  wget -qO "${INSTALL_DIR}/${BIN}" "$DOWNLOAD_URL"
+  wget -qO "$TMP_BIN" "$DOWNLOAD_URL"
 else
   echo "Error: curl or wget is required"
   exit 1
 fi
 
-chmod +x "${INSTALL_DIR}/${BIN}"
+chmod +x "$TMP_BIN"
+mv -f "$TMP_BIN" "${INSTALL_DIR}/${BIN}"
 
 # Add to PATH if not already there
 case ":$PATH:" in
@@ -86,7 +98,6 @@ chmod 600 "${HOME}/.remotecmd/pair_code"
 
 # --- Start daemon (background, persistent) ---
 echo "[remotecmd] Starting daemon..."
-"$RCMD" daemon stop 2>/dev/null || true
 
 # Try systemd user service first
 if command -v systemctl >/dev/null 2>&1 && systemctl --user status >/dev/null 2>&1; then
