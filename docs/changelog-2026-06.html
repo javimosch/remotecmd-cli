@@ -89,6 +89,18 @@
 
         <div class="feature-card rounded-xl p-6">
           <div class="flex items-start gap-4">
+            <div class="w-12 h-12 rounded-lg bg-rose-500/10 flex items-center justify-center flex-shrink-0">
+              <span class="text-2xl">🤖</span>
+            </div>
+            <div>
+              <h3 class="text-xl font-semibold text-white mb-2">Agent-first design</h3>
+              <p class="text-slate-400 leading-relaxed">Structured JSON output (stdout, stderr, exit code, duration) every time. Self-describing via SuperCLI's <code class="text-blue-400">inspect</code> command. Zero parsing required for AI agents.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="feature-card rounded-xl p-6">
+          <div class="flex items-start gap-4">
             <div class="w-12 h-12 rounded-lg bg-red-500/10 flex items-center justify-center flex-shrink-0">
               <span class="text-2xl">🐛</span>
             </div>
@@ -104,6 +116,15 @@
       <!-- Technical Changelog -->
       <div id="content-technical" class="tab-content">
         <div class="space-y-8">
+
+        <section>
+          <h2 class="text-2xl font-semibold text-brand-400 mb-4 flex items-center gap-2">
+            <span>🚀</span> Features
+          </h2>
+          <ul class="space-y-2 text-slate-300">
+            <li><span class="text-slate-500 text-sm mr-3">[02/06]</span>feat: Add help documentation and improve error messages for rcx, rcl, and rcs wrappers</li>
+          </ul>
+        </section>
 
         <section>
           <h2 class="text-2xl font-semibold text-red-400 mb-4 flex items-center gap-2">
@@ -128,6 +149,11 @@
             <span>💼</span> Other
           </h2>
           <ul class="space-y-2 text-slate-300">
+            <li><span class="text-slate-500 text-sm mr-3">[02/06]</span>Fix main changelog page footer width</li>
+            <li><span class="text-slate-500 text-sm mr-3">[02/06]</span>Fix changelog footer width constraint</li>
+            <li><span class="text-slate-500 text-sm mr-3">[02/06]</span>Add Ko-fi support badge to README</li>
+            <li><span class="text-slate-500 text-sm mr-3">[02/06]</span>Add Ko-fi support link to docs footer and nav</li>
+            <li><span class="text-slate-500 text-sm mr-3">[02/06]</span>Add docs/ with landing page and changelogs</li>
             <li><span class="text-slate-500 text-sm mr-3">[02/06]</span>Fix install.sh: stop daemon before overwriting binary, use tmp file</li>
             <li><span class="text-slate-500 text-sm mr-3">[02/06]</span>Bump version to 1.1.0</li>
             <li><span class="text-slate-500 text-sm mr-3">[02/06]</span>Add peer pairing flow for external targets</li>
@@ -138,14 +164,7 @@
         </section>
         </div>
       </div>
-  </div>
-
-  <footer class="mt-16 pt-8 border-t border-slate-800 flex items-center justify-between max-w-5xl mx-auto px-6">
-    <a href="changelog.html" class="text-slate-500 hover:text-slate-300 text-sm transition-colors">← All changelogs</a>
-    <a href="https://ko-fi.com/javimosch" target="_blank" class="transition-transform hover:scale-105">
-      <img src="https://storage.ko-fi.com/cdn/brandasset/v2/support_me_on_kofi_badge_beige.png" alt="Support me on Ko-fi" class="h-8">
-    </a>
-  </footer>
+    </div>
 
     <script>
       function switchTab(tab) {

@@ -170,6 +170,7 @@
     <div class="nav-pill rounded-full px-5 py-3 flex items-center gap-6">
       <span class="text-white font-semibold text-sm tracking-tight">remotecmd</span>
       <div class="w-px h-4 bg-white/10"></div>
+      <a href="https://github.com/javimosch/supercli" target="_blank" class="text-slate-400 hover:text-white text-sm transition-colors">SuperCLI</a>
       <a href="changelog.html" class="text-slate-400 hover:text-white text-sm transition-colors">Changelog</a>
       <a href="https://github.com/javimosch/remotecmd-cli" target="_blank" class="text-slate-400 hover:text-white text-sm transition-colors">GitHub</a>
       <a href="https://ko-fi.com/javimosch" target="_blank" class="text-slate-400 hover:text-white text-sm transition-colors">Support</a>
@@ -195,8 +196,8 @@
     </h1>
 
     <p class="reveal text-slate-400 mt-6 text-lg md:text-xl max-w-xl leading-relaxed" style="transition-delay:160ms">
-      No VPN. No open ports. No SSH keys.<br>
-      A WebSocket relay routes commands through NAT, firewalls, and dynamic IPs.
+      Agent-first remote execution. JSON output, deterministic responses, zero parsing.<br>
+      Built for AI agents via SuperCLI.
     </p>
 
     <div class="reveal flex flex-wrap gap-3 justify-center mt-10" style="transition-delay:240ms">
@@ -322,6 +323,39 @@
         </div>
       </div>
 
+    </div>
+  </section>
+
+  <!-- Agent-first section -->
+  <section class="relative z-10 max-w-4xl mx-auto px-4 pb-32">
+    <div class="text-center mb-16 reveal">
+      <div class="eyebrow mb-4">Agent-first</div>
+      <h2 class="text-4xl md:text-5xl font-bold text-white tracking-tighter">Built for AI agents</h2>
+      <p class="text-slate-400 mt-4 text-lg">remotecmd-cli is designed as a SuperCLI plugin — agents discover, inspect, and execute it without parsing.</p>
+    </div>
+
+    <div class="bento-grid gap-3">
+      <div class="col-6 reveal bezel-outer" style="transition-delay:0ms">
+        <div class="bezel-inner">
+          <div class="w-11 h-11 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-xl mb-4">📋</div>
+          <h3 class="text-white font-semibold text-lg mb-2">Structured JSON output</h3>
+          <p class="text-slate-400 text-sm leading-relaxed">Every result is a deterministic JSON envelope — stdout, stderr, exit code, duration. No regex, no guessing.</p>
+        </div>
+      </div>
+      <div class="col-6 reveal bezel-outer" style="transition-delay:80ms">
+        <div class="bezel-inner">
+          <div class="w-11 h-11 rounded-xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center text-xl mb-4">🔍</div>
+          <h3 class="text-white font-semibold text-lg mb-2">Self-describing</h3>
+          <p class="text-slate-400 text-sm leading-relaxed">Agents can inspect the full command schema before execution via SuperCLI's <code class="text-indigo-400">inspect</code> command.</p>
+        </div>
+      </div>
+      <div class="col-12 reveal bezel-outer" style="transition-delay:160ms">
+        <div class="bezel-inner">
+          <div class="w-11 h-11 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-xl mb-4">🔗</div>
+          <h3 class="text-white font-semibold text-lg mb-2">SuperCLI integration</h3>
+          <p class="text-slate-400 text-sm leading-relaxed">Install as a SuperCLI plugin with <code class="text-indigo-400">sc plugins install remotecmd-cli</code>. Agents discover it via <code class="text-indigo-400">sc skills search "remote"</code>, inspect capabilities, and execute with <code class="text-indigo-400">sc remotecmd execute</code>.</p>
+        </div>
+      </div>
     </div>
   </section>
 

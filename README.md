@@ -8,8 +8,8 @@
 <h1 align="center">remotecmd-cli — Execute commands on any machine, anywhere</h1>
 
 <p align="center">
-  <b>No VPN. No open ports. No SSH keys.</b><br>
-  Connect a machine with one curl command. Run commands from anywhere.
+  <b>Agent-first remote execution.</b><br>
+  JSON output, deterministic responses, zero parsing. Built for AI agents.
 </p>
 
 > WebSocket relay + token auth. Works over Tailscale, public internet, NAT, firewalls.
@@ -40,7 +40,13 @@ Executing a command on a remote machine shouldn't require:
 - Dealing with NAT traversal or dynamic IPs
 - Installing heavyweight remote management tools
 
-**For agents**, the situation is worse — they need a clean, scriptable interface that returns structured output, handles timeouts, and works reliably over unstable connections.
+**For AI agents**, the situation is worse — they need a clean, scriptable interface that:
+- Returns structured JSON (stdout, stderr, exit code, duration) every time
+- Handles timeouts deterministically
+- Works reliably over unstable connections
+- Requires zero parsing or regex extraction
+
+Most tools output human-readable text or inconsistent formats. Agents waste tokens parsing, guessing, and retrying. remotecmd-cli is built the other way around: **JSON by default, human-readable on request**.
 
 ## The Solution
 
