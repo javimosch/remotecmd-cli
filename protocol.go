@@ -13,12 +13,37 @@ type Message struct {
 	Name       string `json:"name,omitempty"`
 	Cmd        string `json:"cmd,omitempty"`
 	Timeout    int    `json:"timeout,omitempty"`
+	Stream     bool   `json:"stream,omitempty"`
 	OK         *bool  `json:"ok,omitempty"`
 	Stdout     string `json:"stdout,omitempty"`
 	Stderr     string `json:"stderr,omitempty"`
 	ExitCode   int    `json:"exit_code,omitempty"`
 	DurationMs int64  `json:"duration_ms,omitempty"`
 	Error      string `json:"error,omitempty"`
+	// Streaming fields
+	StreamName string `json:"stream_name,omitempty"` // "stdout" or "stderr"
+	Data       string `json:"data,omitempty"`
+}
+
+func streamEndOK(id string, exitCode int, durationMs int64) *Message {
+	b := exitCode == 0
+	return &Message{
+		Type:       "stream_end",
+		ID:         id,
+		OK:         &b,
+		ExitCode:   exitCode,
+		DurationMs: durationMs,
+	}
+}
+
+func streamEndErr(id, errMsg string) *Message {
+	b := false
+	return &Message{
+		Type:  "stream_end",
+		ID:    id,
+		OK:    &b,
+		Error: errMsg,
+	}
 }
 
 func okResult(id, stdout, stderr string, exitCode int, durationMs int64) *Message {

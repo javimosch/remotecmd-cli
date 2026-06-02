@@ -51,15 +51,16 @@ func handleExecFlags(args []string) {
 	target := fs.String("target", "", "target machine name")
 	cmd := fs.String("cmd", "", "command to execute")
 	timeout := fs.Int("timeout", 30, "command timeout in seconds")
+	stream := fs.Bool("stream", false, "stream output in real time")
 	fs.Parse(args)
 
 	if *target == "" || *cmd == "" {
 		fmt.Fprintln(os.Stderr, "Error: --target and --cmd are required")
-		fmt.Fprintln(os.Stderr, "Usage: remotecmd-cli --target <name> --cmd <command> [--timeout <seconds>]")
+		fmt.Fprintln(os.Stderr, "Usage: remotecmd-cli --target <name> --cmd <command> [--timeout <seconds>] [--stream]")
 		os.Exit(1)
 	}
 
-	if err := handleExec(*target, *cmd, *timeout); err != nil {
+	if err := handleExec(*target, *cmd, *timeout, *stream); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -264,7 +265,7 @@ func printHelp() {
 	fmt.Println(`remotecmd-cli — remote command execution via WebSocket relay
 
 EXECUTE:
-  remotecmd-cli --target <name> --cmd <command>  Execute command on remote target
+  remotecmd-cli --target <name> --cmd <command> [--timeout <s>] [--stream]  Execute command on remote target
 
 CONFIGURATION:
   remotecmd-cli add-target --name <n> --token <t>    Add a known target

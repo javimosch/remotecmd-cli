@@ -3,12 +3,13 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/gorilla/websocket"
 )
 
-func handleExec(target, cmd string, timeout int) error {
+func handleExec(target, cmd string, timeout int, stream bool) error {
 	cfg, err := loadConfig()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
@@ -37,6 +38,7 @@ func handleExec(target, cmd string, timeout int) error {
 		Token:   tgt.Token,
 		Cmd:     cmd,
 		Timeout: timeout,
+		Stream:  stream,
 	}
 
 	if err := conn.WriteJSON(req); err != nil {
@@ -53,7 +55,17 @@ func handleExec(target, cmd string, timeout int) error {
 				errCh <- fmt.Errorf("read response: %w", err)
 				return
 			}
-			if msg.ID == id && msg.Type == "result" {
+			if msg.ID != id {
+				continue
+			}
+			switch msg.Type {
+			case "stream_chunk":
+				if msg.StreamName == "stderr" {
+					fmt.Fprint(os.Stderr, msg.Data)
+				} else {
+					fmt.Fprint(os.Stdout, msg.Data)
+				}
+			case "stream_end", "result":
 				resultCh <- &msg
 				return
 			}
@@ -62,8 +74,14 @@ func handleExec(target, cmd string, timeout int) error {
 
 	select {
 	case result := <-resultCh:
-		out, _ := json.MarshalIndent(result, "", "  ")
-		fmt.Println(string(out))
+		if result.Type == "result" || !stream {
+			out, _ := json.MarshalIndent(result, "", "  ")
+			fmt.Println(string(out))
+		} else {
+			// streaming: print compact end summary to stderr so stdout stays clean
+			out, _ := json.MarshalIndent(result, "", "  ")
+			fmt.Fprintln(os.Stderr, string(out))
+		}
 		return nil
 	case err := <-errCh:
 		return err

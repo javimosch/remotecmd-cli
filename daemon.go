@@ -2,8 +2,10 @@ package main
 
 import (
 	"bytes"
+	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os/exec"
 	"strings"
@@ -90,6 +92,14 @@ func (td *TargetDaemon) run() {
 }
 
 func (td *TargetDaemon) executeCommand(msg *Message) {
+	if msg.Stream {
+		td.executeCommandStreaming(msg)
+	} else {
+		td.executeCommandBuffered(msg)
+	}
+}
+
+func (td *TargetDaemon) executeCommandBuffered(msg *Message) {
 	start := time.Now()
 
 	log.Printf("Executing command (id=%s): %s", msg.ID, msg.Cmd)
@@ -130,6 +140,79 @@ func (td *TargetDaemon) executeCommand(msg *Message) {
 
 	log.Printf("Command succeeded (id=%s, duration=%dms)", msg.ID, duration)
 	td.send(okResult(msg.ID, stdout, stderr, 0, duration))
+}
+
+func (td *TargetDaemon) executeCommandStreaming(msg *Message) {
+	start := time.Now()
+
+	log.Printf("Executing command (streaming, id=%s): %s", msg.ID, msg.Cmd)
+
+	timeout := msg.Timeout
+	if timeout <= 0 {
+		timeout = 30
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(),
+		time.Duration(timeout)*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "sh", "-c", msg.Cmd)
+
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		td.send(errResult(msg.ID, "failed to create stdout pipe: "+err.Error()))
+		return
+	}
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		td.send(errResult(msg.ID, "failed to create stderr pipe: "+err.Error()))
+		return
+	}
+
+	if err := cmd.Start(); err != nil {
+		td.send(errResult(msg.ID, "failed to start command: "+err.Error()))
+		return
+	}
+
+	var wg sync.WaitGroup
+	streamPipe := func(pipe io.Reader, streamName string) {
+		defer wg.Done()
+		scanner := bufio.NewScanner(pipe)
+		for scanner.Scan() {
+			td.send(&Message{
+				Type:       "stream_chunk",
+				ID:         msg.ID,
+				StreamName: streamName,
+				Data:       scanner.Text() + "\n",
+			})
+		}
+	}
+
+	wg.Add(2)
+	go streamPipe(stdoutPipe, "stdout")
+	go streamPipe(stderrPipe, "stderr")
+	wg.Wait()
+
+	err = cmd.Wait()
+	duration := time.Since(start).Milliseconds()
+
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			log.Printf("Command timed out (id=%s)", msg.ID)
+			td.send(streamEndErr(msg.ID, fmt.Sprintf("command timed out after %ds", timeout)))
+			return
+		}
+		exitCode := 1
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		}
+		log.Printf("Command failed (id=%s, exit=%d)", msg.ID, exitCode)
+		td.send(streamEndOK(msg.ID, exitCode, duration))
+		return
+	}
+
+	log.Printf("Command succeeded (id=%s, duration=%dms)", msg.ID, duration)
+	td.send(streamEndOK(msg.ID, 0, duration))
 }
 
 func (td *TargetDaemon) send(msg *Message) {

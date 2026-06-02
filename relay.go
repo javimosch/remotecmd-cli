@@ -123,7 +123,7 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 			}
 
 			reqID := newID()
-			log.Printf("Forwarding command %s -> %s (id=%s)", rc.name, msg.Target, reqID)
+			log.Printf("Forwarding command %s -> %s (id=%s, stream=%v)", rc.name, msg.Target, reqID, msg.Stream)
 
 			rs.mu.Lock()
 			rs.pending[reqID] = &pendingRequest{
@@ -137,12 +137,37 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 				ID:      reqID,
 				Cmd:     msg.Cmd,
 				Timeout: msg.Timeout,
+				Stream:  msg.Stream,
 			}
 			if err := target.send(forward); err != nil {
 				log.Printf("Forward to %s failed: %v", msg.Target, err)
 				rs.cleanupPending(reqID)
 				rc.send(errResult(msg.ID, "failed to forward command: "+err.Error()))
 			}
+
+		case "stream_chunk":
+			rs.mu.RLock()
+			pr, ok := rs.pending[msg.ID]
+			rs.mu.RUnlock()
+			if !ok {
+				continue
+			}
+			msg.ID = pr.serverID
+			pr.clientConn.send(&msg)
+
+		case "stream_end":
+			rs.mu.Lock()
+			pr, ok := rs.pending[msg.ID]
+			if ok {
+				delete(rs.pending, msg.ID)
+			}
+			rs.mu.Unlock()
+			if !ok {
+				continue
+			}
+			msg.ID = pr.serverID
+			pr.clientConn.send(&msg)
+			log.Printf("Stream end relayed for id=%s (ok=%v)", msg.ID, msg.OK)
 
 		case "result":
 			rs.mu.Lock()
@@ -154,8 +179,8 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				continue
 			}
-	msg.ID = pr.serverID
-	pr.clientConn.send(&msg)
+			msg.ID = pr.serverID
+			pr.clientConn.send(&msg)
 			log.Printf("Result relayed for id=%s (ok=%v)", msg.ID, msg.OK)
 
 		default:
