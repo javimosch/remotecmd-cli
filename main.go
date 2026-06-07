@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const Version = "1.1.0"
+const Version = "1.2.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -41,6 +41,10 @@ func main() {
 		handlePairSubcommand(os.Args[2:])
 	case "cp":
 		handleCP(os.Args[2:])
+	case "exec":
+		handleExecSubcommand(os.Args[2:])
+	case "group":
+		handleGroupSubcommand(os.Args[2:])
 	case "version":
 		fmt.Println("remotecmd-cli version", Version)
 	case "help", "--help", "-h":
@@ -67,6 +71,195 @@ func handleExecFlags(args []string) {
 	}
 
 	if err := handleExec(*target, *cmd, *timeout, *stream); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func handleExecSubcommand(args []string) {
+	fs := flag.NewFlagSet("exec", flag.ExitOnError)
+	target := fs.String("target", "", "single target machine name")
+	targets := fs.String("targets", "", "comma-separated target names")
+	group := fs.String("group", "", "target group name")
+	cmd := fs.String("cmd", "", "command to execute")
+	timeout := fs.Int("timeout", 30, "command timeout in seconds")
+	stream := fs.Bool("stream", false, "stream output (single target only)")
+	parallel := fs.Int("parallel", 0, "max parallel targets (multi-target only)")
+	format := fs.String("format", "table", "output format: json or table (multi-target only)")
+	fs.Parse(args)
+
+	if *cmd == "" {
+		fmt.Fprintln(os.Stderr, "Error: --cmd is required")
+		fmt.Fprintln(os.Stderr, "Usage: remotecmd-cli exec --cmd <command> [--target <name> | --targets <list> | --group <name>] [--timeout <s>] [--stream] [--format json|table]")
+		os.Exit(1)
+	}
+
+	// Determine targets
+	var targetList []string
+	isMulti := false
+
+	if *group != "" {
+		var err error
+		targetList, err = resolveTargets(*group, true)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		isMulti = len(targetList) > 1
+	} else if *targets != "" {
+		var err error
+		targetList, err = resolveTargets(*targets, false)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		isMulti = len(targetList) > 1
+	} else if *target != "" {
+		targetList = []string{*target}
+		// Validate target exists
+		cfg, err := loadConfig()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		if _, ok := cfg.Targets[*target]; !ok {
+			fmt.Fprintf(os.Stderr, "Error: unknown target %q\n", *target)
+			os.Exit(1)
+		}
+		isMulti = false
+	} else {
+		fmt.Fprintln(os.Stderr, "Error: one of --target, --targets, or --group is required")
+		os.Exit(1)
+	}
+
+	_ = parallel // Available for future use
+
+	if isMulti {
+		if *stream {
+			fmt.Fprintln(os.Stderr, "Warning: --stream is not supported for multi-target; ignoring")
+		}
+		if err := handleMultiExec(targetList, *cmd, *timeout, *format); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	} else {
+		if err := handleExec(targetList[0], *cmd, *timeout, *stream); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	}
+}
+
+func handleGroupSubcommand(args []string) {
+	if len(args) < 1 {
+		printGroupHelp()
+		os.Exit(1)
+	}
+	switch args[0] {
+	case "create":
+		handleGroupCreate(args[1:])
+	case "delete":
+		handleGroupDelete(args[1:])
+	case "add":
+		handleGroupAdd(args[1:])
+	case "remove":
+		handleGroupRemove(args[1:])
+	case "list":
+		handleGroupList()
+	default:
+		printGroupHelp()
+		os.Exit(1)
+	}
+}
+
+func handleGroupCreate(args []string) {
+	fs := flag.NewFlagSet("group create", flag.ExitOnError)
+	name := fs.String("name", "", "group name")
+	targets := fs.String("targets", "", "comma-separated target names")
+	fs.Parse(args)
+
+	if *name == "" || *targets == "" {
+		fmt.Fprintln(os.Stderr, "Error: --name and --targets are required")
+		os.Exit(1)
+	}
+
+	list := strings.Split(*targets, ",")
+	for i, t := range list {
+		list[i] = strings.TrimSpace(t)
+	}
+
+	if err := groupCreate(*name, list); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Group %q created with %d targets\n", *name, len(list))
+}
+
+func handleGroupDelete(args []string) {
+	fs := flag.NewFlagSet("group delete", flag.ExitOnError)
+	name := fs.String("name", "", "group name")
+	fs.Parse(args)
+
+	if *name == "" {
+		fmt.Fprintln(os.Stderr, "Error: --name is required")
+		os.Exit(1)
+	}
+
+	if err := groupDelete(*name); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Group %q deleted\n", *name)
+}
+
+func handleGroupAdd(args []string) {
+	fs := flag.NewFlagSet("group add", flag.ExitOnError)
+	name := fs.String("name", "", "group name")
+	targets := fs.String("targets", "", "comma-separated target names")
+	fs.Parse(args)
+
+	if *name == "" || *targets == "" {
+		fmt.Fprintln(os.Stderr, "Error: --name and --targets are required")
+		os.Exit(1)
+	}
+
+	list := strings.Split(*targets, ",")
+	for i, t := range list {
+		list[i] = strings.TrimSpace(t)
+	}
+
+	if err := groupAddTargets(*name, list); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Targets added to group %q\n", *name)
+}
+
+func handleGroupRemove(args []string) {
+	fs := flag.NewFlagSet("group remove", flag.ExitOnError)
+	name := fs.String("name", "", "group name")
+	targets := fs.String("targets", "", "comma-separated target names")
+	fs.Parse(args)
+
+	if *name == "" || *targets == "" {
+		fmt.Fprintln(os.Stderr, "Error: --name and --targets are required")
+		os.Exit(1)
+	}
+
+	list := strings.Split(*targets, ",")
+	for i, t := range list {
+		list[i] = strings.TrimSpace(t)
+	}
+
+	if err := groupRemoveTargets(*name, list); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Targets removed from group %q\n", *name)
+}
+
+func handleGroupList() {
+	if err := groupList(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -270,37 +463,49 @@ func handleDaemonStatus() {
 func printHelp() {
 	fmt.Println(`remotecmd-cli — remote command execution via WebSocket relay
 
-EXECUTE:
-  remotecmd-cli --target <name> --cmd <command> [--timeout <s>] [--stream]  Execute command on remote target
+EXECUTE (single target):
+  remotecmd-cli --target <name> --cmd <command> [--timeout <s>] [--stream]    Single target (legacy)
+  remotecmd-cli exec --target <name> --cmd <command> [--timeout <s>] [--stream]  Single target (new)
+
+EXECUTE (multi-target):
+  remotecmd-cli exec --targets <t1,t2,...> --cmd <command> [--timeout <s>] [--format json|table]
+  remotecmd-cli exec --group <name> --cmd <command> [--timeout <s>] [--format json|table]
 
 FILE TRANSFER:
   remotecmd-cli cp --target <name> --src <path> --dst <path>  Copy file or directory to remote target
 
-CONFIGURATION:
+TARGET CONFIGURATION:
   remotecmd-cli add-target --name <n> --token <t>    Add a known target
   remotecmd-cli remove-target --name <n>              Remove a target
-  remotecmd-cli list-targets                          List configured targets
+  remotecmd-cli list-targets                          List configured targets and groups
   remotecmd-cli set-relay --url <u> --name <n>        Configure relay connection
+
+GROUP MANAGEMENT:
+  remotecmd-cli group create --name <n> --targets <t1,t2,...>  Create a target group
+  remotecmd-cli group add --name <n> --targets <t1,t2,...>     Add targets to a group
+  remotecmd-cli group remove --name <n> --targets <t1,t2,...>  Remove targets from a group
+  remotecmd-cli group delete --name <n>                        Delete a group
+  remotecmd-cli group list                                     List all groups
 
 ALIAS:
   remotecmd-cli alias install                         Install convenience aliases (rc, rcx, rcl, rcs, rcc)
   remotecmd-cli alias uninstall                       Remove installed aliases
 
-RELAY (run on relay hub machine, e.g. dk1):
+RELAY (run on relay hub machine):
   remotecmd-cli relay daemon start [--port 3032]     Start relay hub (foreground)
   remotecmd-cli relay daemon start --port 3032 -daemon  Start relay hub (background)
   remotecmd-cli relay daemon stop                    Stop relay hub
   remotecmd-cli relay daemon status                  Check relay hub status
 
-DAEMON (run on target machine, e.g. p22):
+DAEMON (run on target machine):
   remotecmd-cli daemon start [--token <t>]            Start target daemon (foreground)
   remotecmd-cli daemon start --token <t> -daemon       Start target daemon (background)
   remotecmd-cli daemon stop                           Stop target daemon
   remotecmd-cli daemon status                         Check target daemon status
 
-PAIRING (add external targets):
-  remotecmd-cli pair listen [--name <n>] [--timeout <s>] [--code <c>]  Wait for peer; prints one-liner to share
-  remotecmd-cli pair accept --code <c>                                   Accept a pair code (saves + signals daemon)
+PAIRING:
+  remotecmd-cli pair listen [--name <n>] [--timeout <s>] [--code <c>]  Wait for peer; prints one-liner
+  remotecmd-cli pair accept --code <c>                                   Accept a pair code
 
 OTHER:
   remotecmd-cli version    Show version
@@ -330,4 +535,15 @@ Commands:
   start [--token <t>] [-daemon]  Start target daemon
   stop                            Stop target daemon
   status                          Check target daemon status`)
+}
+
+func printGroupHelp() {
+	fmt.Println(`Usage: remotecmd-cli group <command>
+
+Commands:
+  create --name <n> --targets <t1,t2,...>   Create a target group
+  delete --name <n>                          Delete a group
+  add --name <n> --targets <t1,t2,...>       Add targets to a group
+  remove --name <n> --targets <t1,t2,...>    Remove targets from a group
+  list                                        List all groups`)
 }

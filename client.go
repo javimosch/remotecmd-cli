@@ -30,7 +30,6 @@ func handleExec(target, cmd string, timeout int, stream bool) error {
 	}
 	defer conn.Close()
 
-	// Resolve relay-registered name (may differ from local alias)
 	relayTarget := target
 	if tgt.RelayName != "" {
 		relayTarget = tgt.RelayName
@@ -111,5 +110,106 @@ func handleExec(target, cmd string, timeout int, stream bool) error {
 			emitProgress("timeout", map[string]interface{}{})
 		}
 		return fmt.Errorf("timed out waiting for response from %q", target)
+	}
+}
+
+func handleMultiExec(targets []string, cmd string, timeout int, format string) error {
+	cfg, err := loadConfig()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	if cfg.Relay.URL == "" {
+		return fmt.Errorf("relay not configured. Run: remotecmd-cli set-relay --url <url> --name <name>")
+	}
+
+	// Build token map and resolve relay names
+	tokens := make(map[string]string)
+	resolvedTargets := make([]string, len(targets))
+	for i, target := range targets {
+		tgt, ok := cfg.Targets[target]
+		if !ok {
+			return fmt.Errorf("unknown target %q", target)
+		}
+		relayTarget := target
+		if tgt.RelayName != "" {
+			relayTarget = tgt.RelayName
+		}
+		resolvedTargets[i] = relayTarget
+		tokens[relayTarget] = tgt.Token
+	}
+
+	u := wsURL(cfg.Relay.URL)
+	conn, _, err := websocket.DefaultDialer.Dial(u, nil)
+	if err != nil {
+		return fmt.Errorf("connect to relay: %w", err)
+	}
+	defer conn.Close()
+
+	id := newID()
+	req := &Message{
+		Type:    "execute_multi",
+		ID:      id,
+		Targets: resolvedTargets,
+		Tokens:  tokens,
+		Cmd:     cmd,
+		Timeout: timeout,
+	}
+
+	if err := conn.WriteJSON(req); err != nil {
+		return fmt.Errorf("send multi-exec request: %w", err)
+	}
+
+	resultCh := make(chan *Message, 1)
+	errCh := make(chan error, 1)
+
+	go func() {
+		for {
+			var msg Message
+			if err := conn.ReadJSON(&msg); err != nil {
+				errCh <- fmt.Errorf("read response: %w", err)
+				return
+			}
+			if msg.Type == "multi_result" && msg.ID == id {
+				resultCh <- &msg
+				return
+			}
+		}
+	}()
+
+	select {
+	case result := <-resultCh:
+		if format == "json" {
+			out, _ := json.MarshalIndent(result, "", "  ")
+			fmt.Println(string(out))
+		} else {
+			// Table format
+			fmt.Printf("%-20s | %-6s | %s\n", "TARGET", "STATUS", "OUTPUT/ERROR")
+			fmt.Println("---------------------|--------|----------------------------------------")
+			for _, target := range resolvedTargets {
+				r, ok := result.Results[target]
+				if !ok {
+					fmt.Printf("%-20s | %-6s | %s\n", target, "N/A", "no result")
+					continue
+				}
+				if r.OK != nil && *r.OK {
+					out := r.Stdout
+					if len(out) > 60 {
+						out = out[:60] + "..."
+					}
+					fmt.Printf("%-20s | %-6s | %s\n", target, "OK", out)
+				} else {
+					errMsg := r.Error
+					if errMsg == "" {
+						errMsg = "unknown error"
+					}
+					fmt.Printf("%-20s | %-6s | %s\n", target, "FAIL", errMsg)
+				}
+			}
+		}
+		return nil
+	case err := <-errCh:
+		return err
+	case <-time.After(time.Duration(timeout+10) * time.Second):
+		return fmt.Errorf("timed out waiting for multi-target results")
 	}
 }

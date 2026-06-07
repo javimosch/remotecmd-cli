@@ -21,7 +21,7 @@ type Message struct {
 	DurationMs int64  `json:"duration_ms,omitempty"`
 	Error      string `json:"error,omitempty"`
 	// Streaming fields
-	StreamName string `json:"stream_name,omitempty"` // "stdout" or "stderr"
+	StreamName string `json:"stream_name,omitempty"`
 	Data       string `json:"data,omitempty"`
 	// Pairing fields
 	Code     string `json:"code,omitempty"`
@@ -30,7 +30,12 @@ type Message struct {
 	SrcPath  string `json:"src_path,omitempty"`
 	DstPath  string `json:"dst_path,omitempty"`
 	Content  string `json:"content,omitempty"`
-	Mode     string `json:"mode,omitempty"` // "scp" or "rsync"
+	Mode     string `json:"mode,omitempty"`
+	// Multi-target fields
+	Targets     []string          `json:"targets,omitempty"`
+	Tokens      map[string]string `json:"tokens,omitempty"`
+	Results     map[string]*Message `json:"results,omitempty"`
+	Parallel    int               `json:"parallel,omitempty"`
 }
 
 func streamEndOK(id string, exitCode int, durationMs int64) *Message {

@@ -5,14 +5,15 @@
   <img src="https://img.shields.io/github/stars/javimosch/remotecmd-cli?style=social" alt="Stars">
 </p>
 
-<h1 align="center">remotecmd-cli — Execute commands on any machine, anywhere</h1>
+<h1 align="center">remotecmd-cli — Remote execution for your entire fleet</h1>
 
 <p align="center">
-  <b>Agent-first remote execution.</b><br>
-  JSON output, deterministic responses, zero parsing. Built for AI agents.
+  <b>One binary. Zero open ports. JSON output. Multi-target.</b><br>
+  Execute commands on 1 or 100 machines with a single command.
 </p>
 
 > WebSocket relay + token auth. Works over Tailscale, public internet, NAT, firewalls.
+> SSH was built for one machine. remotecmd-cli was built for ten, a hundred, a thousand.
 
 ## TL;DR
 
@@ -20,18 +21,23 @@
 # 1. Start relay on any reachable VPS
 remotecmd-cli relay daemon start --port 3032 -daemon
 
-# 2. Add a remote machine in 10 seconds — share one line with your peer:
+# 2. Add a machine in 10 seconds
 remotecmd-cli pair listen --name myserver
+# Share the printed one-liner with the remote machine
 
-# 3. Run commands on it
+# 3. Run on a single target
 remotecmd-cli --target myserver --cmd 'uptime'
 
-# 4. Stream real-time output
-remotecmd-cli --target myserver --cmd 'tail -f /var/log/syslog' --stream --timeout 60
+# 4. Run on multiple targets at once
+remotecmd-cli exec --targets web1,web2,web3 --cmd 'systemctl restart nginx'
 
-# 5. Copy files/directories
-remotecmd-cli cp --target myserver --src /path/to/file --dst /remote/path
-rcc myserver /path/to/dir /remote/dir --stream
+# 5. Organize into groups and blast commands
+remotecmd-cli group create prod-web --targets web1,web2,web3
+remotecmd-cli exec --group prod-web --cmd 'df -h /data'
+
+# 6. Output as table or JSON
+remotecmd-cli exec --group prod-web --cmd 'hostname' --format table
+remotecmd-cli exec --group prod-web --cmd 'hostname' --format json
 ```
 
 ---
@@ -43,6 +49,8 @@ Executing a command on a remote machine shouldn't require:
 - Opening firewall ports or configuring VPNs
 - Dealing with NAT traversal or dynamic IPs
 - Installing heavyweight remote management tools
+
+**For multiple machines**, the problem compounds. You loop in bash. You write ad-hoc scripts. You pray you don't hit the wrong one.
 
 **For AI agents**, the situation is worse — they need a clean, scriptable interface that:
 - Returns structured JSON (stdout, stderr, exit code, duration) every time
@@ -57,7 +65,9 @@ Most tools output human-readable text or inconsistent formats. Agents waste toke
 remotecmd-cli uses a **WebSocket relay** as the routing hub. Machines connect *out* to the relay (no inbound ports needed) and the relay routes commands between them by token-authenticated target name.
 
 ```
-Client  ──ws──►  Relay Hub  ──ws──►  Target Daemon  ──►  shell
+Client  ──ws──►  Relay Hub  ──ws──►  Target Daemon 1
+                    │             └──  Target Daemon 2
+                    │             └──  Target Daemon N
                     ▲
               (VPS or any
               reachable host)
@@ -66,7 +76,10 @@ Client  ──ws──►  Relay Hub  ──ws──►  Target Daemon  ──�
 - **Zero inbound ports** on target machines — daemons connect out
 - **Token auth** — each target has a unique secret token
 - **Streaming** — real-time stdout/stderr, line by line
+- **Multi-target** — fan-out to any number of connected targets simultaneously
+- **Groups** — organize targets by role, environment, or project
 - **Pair in seconds** — one curl one-liner to add any machine
+- **Agent-first** — JSON output by default, no parsing required
 
 ---
 
@@ -93,26 +106,18 @@ git clone https://github.com/javimosch/remotecmd-cli.git
 cd remotecmd-cli && go build -o remotecmd-cli .
 ```
 
+### Convenience aliases
+
+```bash
+remotecmd-cli alias install
+# Installs: rc (full CLI), rcx (execute), rcl (list), rcs (status), rcc (copy)
+```
+
 ---
 
 ## Quick Start
 
-### Option A: Via SuperCLI (recommended for agents)
-
-```bash
-# Discover remotecmd capability
-supercli discover --intent "remotecmd" --human
-
-# Install as SuperCLI plugin
-supercli plugins install remotecmd-cli
-
-# Execute commands
-supercli remotecmd execute --target myserver --cmd 'uptime'
-```
-
-### Option B: Standalone binary
-
-#### Step 1 — Start a relay
+### Step 1 — Start a relay
 
 On any VPS or machine reachable by both sides:
 
@@ -122,32 +127,24 @@ remotecmd-cli relay daemon start --port 3032 -daemon
 
 ### Step 2 — Add a target machine
 
-**Option A: Pair (easiest — works on any machine)**
+**Option A: Pair (easiest — send one line to any machine)**
 
 ```bash
-# On your machine:
 remotecmd-cli set-relay --url http://<relay-host>:3032 --name myclient
 remotecmd-cli pair listen --name myserver
 ```
 
-It prints a one-liner. Send it to the remote machine — they paste it and you're connected:
+It prints a one-liner. Send it to the remote machine — they paste it:
 
 ```
 curl -sSL https://raw.githubusercontent.com/javimosch/remotecmd-cli/master/install.sh \
   | sh -s -- --relay http://<relay-host>:3032 --code a1b2c3d4
 ```
 
-The remote machine installs the binary, starts the daemon as a persistent systemd service, and sends the pair code. You see:
-
-```
-Peer connected! Target "myserver" added (relay name: myhostname)
-Run: remotecmd-cli --target myserver --cmd 'hostname'
-```
-
 **Option B: Manual (if you already have shell access)**
 
 ```bash
-# On the target machine:
+# On the target:
 remotecmd-cli set-relay --url http://<relay-host>:3032 --name myserver
 remotecmd-cli daemon start -daemon
 # copy the printed token
@@ -160,15 +157,100 @@ remotecmd-cli add-target --name myserver --token <token>
 ### Step 3 — Execute commands
 
 ```bash
-# Buffered (returns JSON after completion)
+# Single target (legacy syntax)
 remotecmd-cli --target myserver --cmd 'df -h'
 
-# Streaming (real-time output, line by line)
-remotecmd-cli --target myserver --cmd 'npm run build' --stream --timeout 120
+# Single target (new syntax)
+remotecmd-cli exec --target myserver --cmd 'hostname'
 
-# With shorter aliases
+# Streaming mode
+remotecmd-cli exec --target myserver --cmd 'journalctl -f' --stream --timeout 60
+
+# With aliases
 rcx myserver 'uptime'
 rcx myserver 'docker ps' 15
+```
+
+---
+
+## Multi-Target Execution
+
+This is where remotecmd-cli really shines. Run commands across your fleet in one shot.
+
+### By comma-separated targets
+
+```bash
+remotecmd-cli exec --targets web1,web2,db1 --cmd 'uptime'
+```
+
+### By named group
+
+```bash
+# Create groups
+remotecmd-cli group create prod-web --targets web1,web2,web3
+remotecmd-cli group create prod-db --targets db1,db2
+
+# Execute on a group
+remotecmd-cli exec --group prod-web --cmd 'systemctl reload nginx'
+
+# Execute on all prod machines (target can be in multiple groups)
+remotecmd-cli exec --targets web1,web2,db1,db2 --cmd 'date'
+```
+
+### Output formats
+
+**Table (default, for humans):**
+
+```
+$ remotecmd-cli exec --targets web1,db1 --cmd 'hostname' --format table
+TARGET               | STATUS | OUTPUT/ERROR
+---------------------|--------|----------------------------------------
+web1                 | OK     | web1.example.com
+db1                  | OK     | db1.internal
+```
+
+**JSON (for agents and scripts):**
+
+```json
+{
+  "type": "multi_result",
+  "results": {
+    "web1": {"ok": true, "stdout": "web1.example.com", "exit_code": 0, "duration_ms": 5},
+    "db1":  {"ok": true, "stdout": "db1.internal", "exit_code": 0, "duration_ms": 4}
+  }
+}
+```
+
+### Group management
+
+```bash
+remotecmd-cli group create --name <n> --targets <t1,t2,...>    # Create group
+remotecmd-cli group add --name <n> --targets <t1,t2,...>       # Add targets to group
+remotecmd-cli group remove --name <n> --targets <t1,t2,...>    # Remove targets from group
+remotecmd-cli group delete --name <n>                          # Delete group
+remotecmd-cli group list                                        # List all groups
+remotecmd-cli list-targets                                      # List targets + groups
+```
+
+---
+
+## File Transfer
+
+Copy files and directories to remote targets:
+
+```bash
+# Single file
+remotecmd-cli cp --target myserver --src ./config.yaml --dst /etc/app/config.yaml
+
+# Directory (auto-detected, uses tar archive + base64)
+remotecmd-cli cp --target myserver --src ./dist --dst /var/www/app
+
+# With streaming progress
+remotecmd-cli cp --target myserver --src ./large-file --dst /tmp/large-file --stream
+
+# Using the rcc alias
+rcc myserver ~/.ssh/config ~/.ssh/config
+rcc myserver /app/dist /app/dist --stream
 ```
 
 ---
@@ -178,88 +260,49 @@ rcx myserver 'docker ps' 15
 The `pair` command is the fastest way to add a machine you don't yet have shell access to:
 
 ```
-Your machine                           Remote machine
-─────────────────                      ─────────────────────────────────────
-remotecmd-cli pair                     (receives one-liner from you)
+You (client)                      Remote machine
+─────────────────                 ─────────────────────────────────────
+remotecmd-cli pair                (receives one-liner from you)
   listen --name vps1
-       │                               curl ... | sh -s -- --relay ... --code abc123
-       │ registers code "abc123"                │
-       │ on relay                               │ installs binary
-       │                                        │ sets relay config (name = hostname)
-       │                                        │ saves pair code to disk
-       │                                        │ starts daemon (systemd or nohup)
-       │                                        │
-       │◄──────── pair message ─────────────────┘
-       │          (code + token + hostname)
-       │
-  adds target "vps1" → config.json
+     │                             curl ... | sh -s -- --relay ... --code abc123
+     │ registers code "abc123"              │
+     │ on relay                             │ installs binary
+     │                                      │ sets relay config
+     │                                      │ saves pair code
+     │                                      │ starts daemon
+     │                                      │
+     │◄──────── pair message ──────────────┘
+     │          (code + token + hostname)
+     │
+  adds target "vps1"
   prints: Peer connected!
 ```
 
-- Pair codes are **one-time use** — deleted from relay and disk after match
-- The daemon auto-starts on boot via systemd user service (falls back to nohup)
-- Aliases save both the hostname (relay-routed) and your custom name
+- Pair codes are **one-time use**
+- Daemon auto-starts on boot via systemd user service (falls back to nohup)
 
 ---
 
 ## Streaming
 
-Without `--stream`, output is buffered and returned as a JSON object after the command exits.
+Without `--stream`, output is buffered and returned as JSON after the command exits.
 
 With `--stream`, stdout and stderr are forwarded **line by line** in real time:
 
 ```bash
 # Watch a build in real time
-remotecmd-cli --target myserver --cmd 'make all' --stream --timeout 300
+remotecmd-cli exec --target myserver --cmd 'make all' --stream --timeout 300
 
 # Follow logs
-remotecmd-cli --target myserver --cmd 'journalctl -f -u nginx' --stream --timeout 3600
-
-# Pipe streaming output locally
-remotecmd-cli --target myserver --cmd 'cat /var/log/app.log' --stream | grep ERROR
+remotecmd-cli exec --target myserver --cmd 'journalctl -f -u nginx' --stream --timeout 3600
 ```
 
 **JSONL Streaming (for agents):**
 
-Add `--stream` to get JSONL progress events:
-
 ```bash
-# Command execution with JSONL events
 rcx myserver 'long-cmd' --stream
 # Output: {"event":"chunk","data":{"stream":"stdout","data":"line"}}
 #         {"event":"complete","data":{"ok":true,"exit_code":0,"duration":123}}
-
-# File transfer with JSONL events
-rcc myserver /path/to/file /remote/path --stream
-# Output: {"event":"start","data":{"src":"/path","dst":"/remote","size":1234,"type":"file"}}
-#         {"event":"read","data":{"size":1234}}
-#         {"event":"sent","data":{"encoded_size":1645}}
-#         {"event":"complete","data":{"ok":true}}
-```
-
-Streaming stdout goes to `stdout` (pipeable). The final summary goes to `stderr`.
-
----
-
-## Output Format
-
-Buffered execution returns JSON:
-
-```json
-{
-  "ok": true,
-  "stdout": "myserver\n",
-  "stderr": "",
-  "exit_code": 0,
-  "duration_ms": 8
-}
-```
-
-Streaming execution prints lines directly, then a summary on `stderr`:
-
-```
-myserver
-{"ok":true,"exit_code":0,"duration_ms":8}
 ```
 
 ---
@@ -267,14 +310,27 @@ myserver
 ## Commands Reference
 
 ```
-EXECUTE:
-  remotecmd-cli --target <n> --cmd <cmd> [--timeout <s>] [--stream]
+EXECUTE (single):
+  remotecmd-cli --target <n> --cmd <cmd> [--timeout <s>] [--stream]    Legacy syntax
+  remotecmd-cli exec --target <n> --cmd <cmd> [--timeout <s>] [--stream]  New syntax
+
+EXECUTE (multi-target):
+  remotecmd-cli exec --targets <t1,t2,...> --cmd <cmd> [--timeout <s>] [--format json|table]
+  remotecmd-cli exec --group <name> --cmd <cmd> [--timeout <s>] [--format json|table]
 
 FILE TRANSFER:
   remotecmd-cli cp --target <n> --src <path> --dst <path> [--stream]
 
+GROUPS:
+  remotecmd-cli group create --name <n> --targets <t1,t2,...>
+  remotecmd-cli group add --name <n> --targets <t1,t2,...>
+  remotecmd-cli group remove --name <n> --targets <t1,t2,...>
+  remotecmd-cli group delete --name <n>
+  remotecmd-cli group list
+
 PAIRING:
-  remotecmd-cli pair listen [--name <n>] [--timeout <s>]
+  remotecmd-cli pair listen [--name <n>] [--timeout <s>] [--code <c>]
+  remotecmd-cli pair accept --code <c>
 
 CONFIGURATION:
   remotecmd-cli set-relay --url <u> --name <n>
@@ -283,8 +339,8 @@ CONFIGURATION:
   remotecmd-cli list-targets
 
 ALIASES:
-  remotecmd-cli alias install      Install rc / rcx / rcl / rcs / rcc shortcuts
-  remotecmd-cli alias uninstall
+  remotecmd-cli alias install       Install rc / rcx / rcl / rcs / rcc
+  remotecmd-cli alias uninstall     Remove installed aliases
 
 RELAY:
   remotecmd-cli relay daemon start [--port 3032] [-daemon]
@@ -297,15 +353,43 @@ DAEMON:
   remotecmd-cli daemon status
 ```
 
-### Convenience aliases (after `alias install`)
+### Convenience aliases
 
 | Alias | Equivalent | Description |
 |-------|-----------|-------------|
 | `rc` | `remotecmd-cli` | Full CLI shortcut |
-| `rcx <target> <cmd> [--stream] [timeout]` | `--target <t> --cmd <c>` | Execute command (default 10s) |
-| `rcl` | `list-targets` | List configured targets |
-| `rcs <target>` | `--target <t> --cmd 'remotecmd status'` | Check daemon status |
+| `rcx <target> <cmd> [--stream] [timeout]` | `exec --target <t> --cmd <c>` | Execute command (default 10s) |
+| `rcl` | `list-targets` | List configured targets + groups |
+| `rcs <target>` | `exec --target <t> --cmd 'status check'` | Check daemon status via PID file |
 | `rcc <target> <src> <dst> [--stream]` | `cp --target <t> --src <s> --dst <d>` | Copy files/directories |
+
+---
+
+## Output Format
+
+**Single-target (buffered):**
+
+```json
+{
+  "ok": true,
+  "stdout": "myserver\n",
+  "stderr": "",
+  "exit_code": 0,
+  "duration_ms": 8
+}
+```
+
+**Multi-target (JSON):**
+
+```json
+{
+  "type": "multi_result",
+  "results": {
+    "web1": {"ok": true, "stdout": "OK", "exit_code": 0, "duration_ms": 5},
+    "web2": {"ok": false, "error": "target not connected"}
+  }
+}
+```
 
 ---
 
@@ -313,19 +397,27 @@ DAEMON:
 
 ```
 ┌────────────┐   WebSocket   ┌─────────────┐   WebSocket   ┌──────────────────┐
-│   Client   │──────────────►│  Relay Hub  │◄──────────────│  Target Daemon   │
-│ (one-shot) │               │  (always on)│               │  (persistent bg) │
-└────────────┘               └─────────────┘               └──────────────────┘
+│   Client   │──────────────►│  Relay Hub  │◄──────────────│  Target Daemon 1 │
+│ (one-shot)  │              │  (always on)│              │  (persistent bg) │
+└────────────┘               │              │              └──────────────────┘
+                             │              │              ┌──────────────────┐
+                             │              │◄──────────────│  Target Daemon 2 │
+                             │              │              └──────────────────┘
+                             │              │              ┌──────────────────┐
+                             │              │◄──────────────│  Target Daemon N │
+                             │              │              └──────────────────┘
+                             └─────────────┘
                                     │
                          routes by target name
                          + token verification
+                         + multi-target fan-out
 ```
 
-**Relay** — stateless hub. Accepts WebSocket connections from both daemons and clients. Routes `execute` messages by target name, verifies tokens, forwards `result`/`stream_chunk`/`stream_end` back to the waiting client. Also handles `pair_listen` / `pair` for the pairing flow.
+**Relay** — stateless hub. Routes single commands by target name. For multi-target, fans out to N daemons, collects results, and returns an aggregated response.
 
-**Daemon** — runs on each target machine. Connects out to relay (no inbound ports). Registers itself by name + token. On `command` message: forks a shell, streams or buffers output, sends result back. On first connect after pairing: sends pair message then deletes the code.
+**Daemon** — runs on each target. Connects out to relay (no inbound ports). Forks a shell on command, returns structured JSON.
 
-**Client** — one-shot. Connects to relay, sends `execute`, waits for `result` or streams `stream_chunk` to stdout until `stream_end`.
+**Client** — one-shot WebSocket connection. Sends command, waits for result.
 
 ---
 
@@ -334,13 +426,13 @@ DAEMON:
 | Scenario | Command |
 |----------|---------|
 | Quick health check | `rcx myserver 'uptime && df -h'` |
-| Deploy to remote | `rcx myserver 'cd /app && git pull && pm2 restart all' 60` |
-| Stream build logs | `remotecmd-cli --target myserver --cmd 'make' --stream --timeout 300` |
-| Follow app logs | `remotecmd-cli --target myserver --cmd 'tail -f /var/log/app.log' --stream` |
-| Run on 3 servers | `for t in web1 web2 web3; do rcx $t 'systemctl status nginx'; done` |
+| Fleet health check | `remotecmd-cli exec --group all --cmd 'uptime' --format table` |
+| Rolling restart | `remotecmd-cli exec --group web --cmd 'systemctl restart nginx'` |
+| Deploy to remote | `remotecmd-cli exec --target app1 --cmd 'cd /app && git pull && pm2 restart all' 60` |
+| Stream build logs | `remotecmd-cli exec --target build --cmd 'make' --stream --timeout 300` |
+| Follow app logs | `remotecmd-cli exec --target prod --cmd 'tail -f /var/log/app.log' --stream` |
+| Copy config to all | `for t in web1 web2 web3; do rcc "$t" ./app.conf /etc/app/app.conf; done` |
 | Add friend's machine | `remotecmd-cli pair listen --name friend` → share one-liner |
-| Copy config file | `rcc myserver ~/.ssh/config ~/.ssh/config` |
-| Sync directory | `rcc myserver /app/dist /app/dist --stream` |
 
 ---
 
@@ -350,9 +442,10 @@ DAEMON:
 |---------|-------|-----|
 | `target not connected` | Daemon not running or wrong relay URL | Check `daemon status` on target; verify relay URL matches |
 | `pair code not found` | Code already used or listener timed out | Run `pair listen` again for a fresh code |
-| `curl: (23) Failure writing output` | Binary busy (systemd running it) | install.sh now stops service first; re-run the one-liner |
+| `curl: (23) Failure writing output` | Binary busy (systemd running it) | install.sh stops service first; re-run one-liner |
 | Token mismatch | Target re-started with new token | Re-add target: `add-target --name <n> --token <new>` |
 | Streaming stops early | Default timeout hit | Add `--timeout <seconds>` |
+| Group target not resolved | Target not in config | Add target first with `add-target`, then add to group |
 
 ---
 
@@ -362,11 +455,23 @@ DAEMON:
 |-------|-----------|
 | Language | Go — single static binary, no runtime deps |
 | Transport | WebSocket (`gorilla/websocket`) |
-| Auth | HMAC token per target |
+| Auth | Token per target (auto-generated) |
 | Persistence | `~/.remotecmd/config.json` |
-| Daemon | PID file + systemd user service (pair install) |
+| Daemon | PID file + nohup (fallback) |
 | Streaming | `StdoutPipe` + `bufio.Scanner`, line-by-line forwarding |
+| Multi-target | Relay-level fan-out with result aggregation |
 | Releases | GitHub Actions → multi-arch binaries (linux/darwin, amd64/arm64) |
+
+---
+
+## Roadmap
+
+See [docs/vision.md](docs/vision.md) for the full vision and roadmap.
+
+Upcoming priorities:
+- **v1.3**: Script-friendly exit codes, systemd unit generation
+- **v1.4**: Persistent client connections for faster sequential commands
+- **v1.5**: Optional TLS for relay encryption
 
 ---
 
@@ -375,7 +480,5 @@ DAEMON:
 MIT — [Javier Leandro Arancibia](https://github.com/javimosch)
 
 ## Support
-
-If remotecmd-cli saved you time, consider supporting the project:
 
 [![Support me on Ko-fi](https://storage.ko-fi.com/cdn/brandasset/v2/support_me_on_kofi_badge_beige.png)](https://ko-fi.com/javimosch)
