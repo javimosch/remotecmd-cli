@@ -28,6 +28,10 @@ remotecmd-cli --target myserver --cmd 'uptime'
 
 # 4. Stream real-time output
 remotecmd-cli --target myserver --cmd 'tail -f /var/log/syslog' --stream --timeout 60
+
+# 5. Copy files/directories
+remotecmd-cli cp --target myserver --src /path/to/file --dst /remote/path
+rcc myserver /path/to/dir /remote/dir --stream
 ```
 
 ---
@@ -215,6 +219,24 @@ remotecmd-cli --target myserver --cmd 'journalctl -f -u nginx' --stream --timeou
 remotecmd-cli --target myserver --cmd 'cat /var/log/app.log' --stream | grep ERROR
 ```
 
+**JSONL Streaming (for agents):**
+
+Add `--stream` to get JSONL progress events:
+
+```bash
+# Command execution with JSONL events
+rcx myserver 'long-cmd' --stream
+# Output: {"event":"chunk","data":{"stream":"stdout","data":"line"}}
+#         {"event":"complete","data":{"ok":true,"exit_code":0,"duration":123}}
+
+# File transfer with JSONL events
+rcc myserver /path/to/file /remote/path --stream
+# Output: {"event":"start","data":{"src":"/path","dst":"/remote","size":1234,"type":"file"}}
+#         {"event":"read","data":{"size":1234}}
+#         {"event":"sent","data":{"encoded_size":1645}}
+#         {"event":"complete","data":{"ok":true}}
+```
+
 Streaming stdout goes to `stdout` (pipeable). The final summary goes to `stderr`.
 
 ---
@@ -248,6 +270,9 @@ myserver
 EXECUTE:
   remotecmd-cli --target <n> --cmd <cmd> [--timeout <s>] [--stream]
 
+FILE TRANSFER:
+  remotecmd-cli cp --target <n> --src <path> --dst <path> [--stream]
+
 PAIRING:
   remotecmd-cli pair listen [--name <n>] [--timeout <s>]
 
@@ -258,7 +283,7 @@ CONFIGURATION:
   remotecmd-cli list-targets
 
 ALIASES:
-  remotecmd-cli alias install      Install rc / rcx / rcl / rcs shortcuts
+  remotecmd-cli alias install      Install rc / rcx / rcl / rcs / rcc shortcuts
   remotecmd-cli alias uninstall
 
 RELAY:
@@ -277,9 +302,10 @@ DAEMON:
 | Alias | Equivalent | Description |
 |-------|-----------|-------------|
 | `rc` | `remotecmd-cli` | Full CLI shortcut |
-| `rcx <target> <cmd> [timeout]` | `--target <t> --cmd <c>` | Execute command (default 10s) |
+| `rcx <target> <cmd> [--stream] [timeout]` | `--target <t> --cmd <c>` | Execute command (default 10s) |
 | `rcl` | `list-targets` | List configured targets |
 | `rcs <target>` | `--target <t> --cmd 'remotecmd status'` | Check daemon status |
+| `rcc <target> <src> <dst> [--stream]` | `cp --target <t> --src <s> --dst <d>` | Copy files/directories |
 
 ---
 
@@ -313,6 +339,8 @@ DAEMON:
 | Follow app logs | `remotecmd-cli --target myserver --cmd 'tail -f /var/log/app.log' --stream` |
 | Run on 3 servers | `for t in web1 web2 web3; do rcx $t 'systemctl status nginx'; done` |
 | Add friend's machine | `remotecmd-cli pair listen --name friend` → share one-liner |
+| Copy config file | `rcc myserver ~/.ssh/config ~/.ssh/config` |
+| Sync directory | `rcc myserver /app/dist /app/dist --stream` |
 
 ---
 
