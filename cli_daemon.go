@@ -32,6 +32,8 @@ func handleRelayDaemon(args []string) {
 		handleRelayDaemonStop()
 	case "status":
 		handleRelayDaemonStatus()
+	case "systemd":
+		handleRelaySystemdSubcommand(args[1:])
 	default:
 		printRelayDaemonHelp()
 		os.Exit(ExitConfigError)
@@ -42,12 +44,19 @@ func handleRelayDaemonStart(args []string) {
 	fs := flag.NewFlagSet("relay daemon start", flag.ExitOnError)
 	port := fs.Int("port", 3032, "relay listen port")
 	bg := fs.Bool("daemon", false, "run in background")
+	tlsCert := fs.String("tls-cert", "", "TLS certificate file (enables HTTPS/WSS)")
+	tlsKey := fs.String("tls-key", "", "TLS private key file")
 	fs.Parse(args)
 
 	if *bg {
-		err := startBackground(relayPidFile, relayLogFile,
-			"relay", "daemon", "start",
-			"-port", fmt.Sprintf("%d", *port))
+		childArgs := []string{"relay", "daemon", "start", "-port", fmt.Sprintf("%d", *port)}
+		if *tlsCert != "" {
+			childArgs = append(childArgs, "-tls-cert", *tlsCert)
+		}
+		if *tlsKey != "" {
+			childArgs = append(childArgs, "-tls-key", *tlsKey)
+		}
+		err := startBackground(relayPidFile, relayLogFile, childArgs...)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(classifyError(err))
@@ -58,7 +67,11 @@ func handleRelayDaemonStart(args []string) {
 	}
 
 	fmt.Printf("Starting relay on port %d...\n", *port)
-	startRelay(*port)
+	if *tlsCert != "" && *tlsKey != "" {
+		startRelayTLS(*port, *tlsCert, *tlsKey)
+	} else {
+		startRelay(*port)
+	}
 }
 
 func handleRelayDaemonStop() {
@@ -85,6 +98,8 @@ func handleDaemonSubcommand(args []string) {
 		handleDaemonStop()
 	case "status":
 		handleDaemonStatus()
+	case "systemd":
+		handleDaemonSystemdSubcommand(args[1:])
 	default:
 		printDaemonHelp()
 		os.Exit(ExitConfigError)

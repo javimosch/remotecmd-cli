@@ -103,6 +103,28 @@ func TestDaemonExecuteCommandDefaultTimeout(t *testing.T) {
 	td.executeCommandBuffered(msg)
 }
 
+func TestDaemonExecuteCommandNonZeroExit(t *testing.T) {
+	td := &TargetDaemon{}
+
+	// Command that exits with specific code
+	td.executeCommandBuffered(&Message{
+		ID:      "test-nonzero",
+		Cmd:     "exit 127",
+		Timeout: 5,
+	})
+}
+
+func TestDaemonExecuteCommandWithFail(t *testing.T) {
+	td := &TargetDaemon{}
+
+	// Command that fails with non-zero exit
+	td.executeCommandBuffered(&Message{
+		ID:      "test-fail",
+		Cmd:     "false",
+		Timeout: 5,
+	})
+}
+
 func TestDaemonTargetDaemonNilConn(t *testing.T) {
 	td := &TargetDaemon{}
 

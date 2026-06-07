@@ -45,6 +45,10 @@ DAEMON (run on target machine):
   remotecmd-cli daemon stop                           Stop target daemon
   remotecmd-cli daemon status                         Check target daemon status
 
+PERSISTENT CLIENT:
+  remotecmd-cli client                                Interactive session (one JSON command per line)
+  echo '{"target":"<n>","cmd":"<cmd>"}' | remotecmd-cli client    Batch mode via stdin
+
 PAIRING:
   remotecmd-cli pair listen [--name <n>] [--timeout <s>] [--code <c>]  Wait for peer; prints one-liner
   remotecmd-cli pair accept --code <c>                                   Accept a pair code
@@ -65,18 +69,20 @@ func printRelayDaemonHelp() {
 	fmt.Println(`Usage: remotecmd-cli relay daemon <command>
 
 Commands:
-  start [--port <n>] [-daemon]  Start relay hub
-  stop                           Stop relay hub
-  status                         Check relay hub status`)
+  start [--port <n>] [-daemon] [--tls-cert <file>] [--tls-key <file>]  Start relay hub
+  stop                                                                  Stop relay hub
+  status                                                                Check relay hub status
+  systemd install|remove                                                Install/remove systemd service`)
 }
 
 func printDaemonHelp() {
 	fmt.Println(`Usage: remotecmd-cli daemon <command>
 
 Commands:
-  start [--token <t>] [-daemon]  Start target daemon
-  stop                            Stop target daemon
-  status                          Check target daemon status`)
+  start [--token <t>] [-daemon]     Start target daemon
+  stop                               Stop target daemon
+  status                             Check target daemon status
+  systemd install|remove             Install/remove systemd user service`)
 }
 
 func printGroupHelp() {

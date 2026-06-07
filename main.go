@@ -44,6 +44,8 @@ func main() {
 		handleExecSubcommand(os.Args[2:])
 	case "group":
 		handleGroupSubcommand(os.Args[2:])
+	case "client":
+		handleClientSubcommand(os.Args[2:])
 	case "version":
 		fmt.Println("remotecmd-cli version", Version)
 	case "help", "--help", "-h":
