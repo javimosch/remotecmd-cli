@@ -1,3 +1,4 @@
 /remotecmd-cli
 *.exe
 .DS_Store
+remotecmd-cli-stripped

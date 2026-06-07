@@ -196,10 +196,13 @@ if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
     echo "Lists all remote targets configured in ~/.remotecmd/config.json"
     echo "Shows target names with truncated tokens for security"
     echo ""
+    echo "When a target uses a different relay name than its alias, both are shown:"
+    echo "  <alias> → <relay_name> (token: <truncated>)"
+    echo ""
     echo "Example output:"
-    echo "  dk1 (token: 5ab3...)"
-    echo "  rbm20 (token: a40c...)"
-    echo "  p22 (token: 6708...)"
+    echo "  rbm21 (token: e6b7...)"
+    echo "  dk1 → vpspoly1 (token: 5ab3...)"
+    echo "  myserver (token: a40c...)"
     exit 0
 fi
 
@@ -221,7 +224,7 @@ if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
     echo "  target    Target machine name to check"
     echo ""
     echo "Checks if remotecmd daemon is running on the target machine"
-    echo "by checking for remotecmd-cli processes via ps aux"
+    echo "by checking the daemon PID file"
     echo ""
     echo "Example:"
     echo "  rcs dk1"
@@ -242,7 +245,7 @@ if [ $# -lt 1 ]; then
 fi
 
 TARGET="$1"
-exec %s --target "$TARGET" --cmd "ps aux | grep remotecmd-cli | grep -v grep" --timeout 10
+exec %s --target "$TARGET" --cmd 'if [ -f /tmp/remotecmd-daemon.pid ]; then PID=$(cat /tmp/remotecmd-daemon.pid); if kill -0 "$PID" 2>/dev/null; then echo "Daemon running (PID: $PID)"; else echo "PID file exists but daemon not running (stale PID: $PID)"; fi; else echo "Daemon not running (no PID file)"; fi' --timeout 10
 `, execPath)
 	return os.WriteFile(path, []byte(content), 0755)
 }
@@ -359,10 +362,16 @@ fi
 TARGET="$1"
 SRC="$2"
 DST="$3"
+shift 3
 STREAM_FLAG=""
-if [ "$4" = "--stream" ]; then
-    STREAM_FLAG="--stream"
-fi
+
+# Parse --stream from any remaining position
+for arg in "$@"; do
+    if [ "$arg" = "--stream" ]; then
+        STREAM_FLAG="--stream"
+    fi
+done
+
 exec %s cp --target "$TARGET" --src "$SRC" --dst "$DST" $STREAM_FLAG
 `, execPath)
 	return os.WriteFile(path, []byte(content), 0755)
