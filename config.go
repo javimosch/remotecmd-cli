@@ -47,7 +47,7 @@ func loadConfig() (*Config, error) {
 	data, err := os.ReadFile(configPath())
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &Config{Targets: make(map[string]TargetConfig)}, nil
+			return &Config{Targets: make(map[string]TargetConfig), Groups: make(map[string][]string)}, nil
 		}
 		return nil, err
 	}
