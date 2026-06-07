@@ -178,17 +178,19 @@ func handleMultiExec(targets []string, cmd string, timeout int, format string) e
 
 	select {
 	case result := <-resultCh:
+		hasFailure := false
+
 		if format == "json" {
 			out, _ := json.MarshalIndent(result, "", "  ")
 			fmt.Println(string(out))
 		} else {
-			// Table format
 			fmt.Printf("%-20s | %-6s | %s\n", "TARGET", "STATUS", "OUTPUT/ERROR")
 			fmt.Println("---------------------|--------|----------------------------------------")
 			for _, target := range resolvedTargets {
 				r, ok := result.Results[target]
 				if !ok {
 					fmt.Printf("%-20s | %-6s | %s\n", target, "N/A", "no result")
+					hasFailure = true
 					continue
 				}
 				if r.OK != nil && *r.OK {
@@ -203,8 +205,13 @@ func handleMultiExec(targets []string, cmd string, timeout int, format string) e
 						errMsg = "unknown error"
 					}
 					fmt.Printf("%-20s | %-6s | %s\n", target, "FAIL", errMsg)
+					hasFailure = true
 				}
 			}
+		}
+
+		if hasFailure {
+			return fmt.Errorf("one or more targets failed")
 		}
 		return nil
 	case err := <-errCh:

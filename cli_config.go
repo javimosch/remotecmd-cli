@@ -14,12 +14,12 @@ func handleAddTarget(args []string) {
 
 	if *name == "" || *token == "" {
 		fmt.Fprintln(os.Stderr, "Error: --name and --token are required")
-		os.Exit(1)
+		os.Exit(ExitConfigError)
 	}
 
 	if err := addTarget(*name, *token); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		os.Exit(ExitInternal)
 	}
 	fmt.Printf("Target %q added\n", *name)
 }
@@ -31,12 +31,12 @@ func handleRemoveTarget(args []string) {
 
 	if *name == "" {
 		fmt.Fprintln(os.Stderr, "Error: --name is required")
-		os.Exit(1)
+		os.Exit(ExitConfigError)
 	}
 
 	if err := removeTarget(*name); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		os.Exit(ExitInternal)
 	}
 	fmt.Printf("Target %q removed\n", *name)
 }
@@ -44,7 +44,7 @@ func handleRemoveTarget(args []string) {
 func handleListTargets() {
 	if err := listTargets(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		os.Exit(ExitInternal)
 	}
 }
 
@@ -56,12 +56,12 @@ func handleSetRelay(args []string) {
 
 	if *url == "" || *name == "" {
 		fmt.Fprintln(os.Stderr, "Error: --url and --name are required")
-		os.Exit(1)
+		os.Exit(ExitConfigError)
 	}
 
 	if err := setRelay(*url, *name); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		os.Exit(ExitInternal)
 	}
 	fmt.Printf("Relay configured: %s (as %q)\n", *url, *name)
 }

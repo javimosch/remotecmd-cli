@@ -51,6 +51,6 @@ func main() {
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", first)
 		printHelp()
-		os.Exit(1)
+		os.Exit(ExitConfigError)
 	}
 }
