@@ -10,14 +10,8 @@ import (
 // startRelayTLS starts the relay with TLS encryption.
 // certFile and keyFile are paths to PEM-encoded certificate and key files.
 func startRelayTLS(port int, certFile, keyFile string) {
-	rs := &RelayServer{
-		port:          port,
-		clients:       make(map[string]*relayClient),
-		pending:       make(map[string]*pendingRequest),
-		pairListeners: make(map[string]*relayClient),
-		multiPending:  make(map[string]*multiPendingEntry),
-		subToMulti:    make(map[string]*subTargetInfo),
-	}
+	rs := NewRelayServer()
+	rs.port = port
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {

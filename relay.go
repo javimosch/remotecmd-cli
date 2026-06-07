@@ -23,6 +23,7 @@ func (c *relayClient) send(msg *Message) error {
 	return c.conn.WriteJSON(msg)
 }
 
+
 type pendingRequest struct {
 	serverID   string
 	clientConn *relayClient
@@ -56,26 +57,31 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-func startRelay(port int) {
-	rs := &RelayServer{
-		port:          port,
+// NewRelayServer creates a new relay server ready to serve requests.
+func NewRelayServer() *RelayServer {
+	return &RelayServer{
 		clients:       make(map[string]*relayClient),
 		pending:       make(map[string]*pendingRequest),
 		pairListeners: make(map[string]*relayClient),
 		multiPending:  make(map[string]*multiPendingEntry),
 		subToMulti:    make(map[string]*subTargetInfo),
 	}
+}
 
+func (rs *RelayServer) Serve(port int) error {
+	rs.port = port
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"healthy"}`))
 	})
 	mux.HandleFunc("/", rs.handleWS)
+	return http.ListenAndServe(fmt.Sprintf(":%d", port), mux)
+}
 
-	addr := fmt.Sprintf(":%d", port)
-	log.Printf("Relay listening on %s", addr)
-	if err := http.ListenAndServe(addr, mux); err != nil {
+func startRelay(port int) {
+	rs := NewRelayServer()
+	if err := rs.Serve(port); err != nil {
 		log.Fatalf("Relay failed: %v", err)
 	}
 }
