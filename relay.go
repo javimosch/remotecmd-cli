@@ -147,6 +147,47 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 				rc.send(errResult(msg.ID, "failed to forward command: "+err.Error()))
 			}
 
+		case "file_transfer":
+			if msg.Target == "" {
+				rc.send(errResult(msg.ID, "target is required"))
+				continue
+			}
+			rs.mu.RLock()
+			target, ok := rs.clients[msg.Target]
+			rs.mu.RUnlock()
+			if !ok {
+				rc.send(errResult(msg.ID, "target not connected: "+msg.Target))
+				continue
+			}
+			if target.token != msg.Token {
+				rc.send(errResult(msg.ID, "invalid token for target: "+msg.Target))
+				continue
+			}
+
+			reqID := newID()
+			log.Printf("Forwarding file transfer %s -> %s (id=%s, mode=%s)", rc.name, msg.Target, reqID, msg.Mode)
+
+			rs.mu.Lock()
+			rs.pending[reqID] = &pendingRequest{
+				serverID:   msg.ID,
+				clientConn: rc,
+			}
+			rs.mu.Unlock()
+
+			forward := &Message{
+				Type:    "file_transfer",
+				ID:      reqID,
+				Mode:    msg.Mode,
+				SrcPath: msg.SrcPath,
+				DstPath: msg.DstPath,
+				Content: msg.Content,
+			}
+			if err := target.send(forward); err != nil {
+				log.Printf("Forward to %s failed: %v", msg.Target, err)
+				rs.cleanupPending(reqID)
+				rc.send(errResult(msg.ID, "failed to forward file transfer: "+err.Error()))
+			}
+
 		case "stream_chunk":
 			rs.mu.RLock()
 			pr, ok := rs.pending[msg.ID]
@@ -185,6 +226,21 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 			pr.clientConn.send(&msg)
 			log.Printf("Result relayed for id=%s (ok=%v)", msg.ID, msg.OK)
 
+		case "file_transfer_result":
+			rs.mu.Lock()
+			pr, ok := rs.pending[msg.ID]
+			if ok {
+				delete(rs.pending, msg.ID)
+			}
+			rs.mu.Unlock()
+			if !ok {
+				continue
+			}
+			msg.ID = pr.serverID
+			msg.Type = "result" // Convert to result for client
+			pr.clientConn.send(&msg)
+			log.Printf("File transfer result relayed for id=%s (ok=%v)", msg.ID, msg.OK)
+
 		case "pair_listen":
 			if msg.Code == "" {
 				rc.send(&Message{Type: "error", Error: "pair_listen requires code"})
@@ -207,8 +263,8 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 			}
 			rs.mu.Unlock()
 			if !ok {
-				log.Printf("Pair code %s not found or already used", msg.Code)
-				rc.send(&Message{Type: "error", Error: "pair code not found or already used"})
+				// Daemon will retry — don't send error (keeps logs clean)
+				log.Printf("Pair code %s not found or already used (daemon will retry)", msg.Code)
 				continue
 			}
 			log.Printf("Pair code %s matched, notifying listener (hostname=%s)", msg.Code, msg.Hostname)
@@ -217,6 +273,11 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 				Code:     msg.Code,
 				Token:    msg.Token,
 				Hostname: msg.Hostname,
+			})
+			// Confirm to the sender (daemon) so it can delete the pair code and stop retrying
+			rc.send(&Message{
+				Type: "pair_confirmed",
+				Code: msg.Code,
 			})
 
 		default:

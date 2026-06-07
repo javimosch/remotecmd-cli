@@ -107,7 +107,11 @@ func listTargets() error {
 		if len(masked) > 4 {
 			masked = masked[:4] + "..."
 		}
-		fmt.Printf("%s (token: %s)\n", name, masked)
+		if tgt.RelayName != "" && tgt.RelayName != name {
+			fmt.Printf("%s → %s (token: %s)\n", name, tgt.RelayName, masked)
+		} else {
+			fmt.Printf("%s (token: %s)\n", name, masked)
+		}
 	}
 	return nil
 }

@@ -39,6 +39,8 @@ func main() {
 		handleAliasSubcommand(os.Args[2:])
 	case "pair":
 		handlePairSubcommand(os.Args[2:])
+	case "cp":
+		handleCP(os.Args[2:])
 	case "version":
 		fmt.Println("remotecmd-cli version", Version)
 	case "help", "--help", "-h":
@@ -271,6 +273,9 @@ func printHelp() {
 EXECUTE:
   remotecmd-cli --target <name> --cmd <command> [--timeout <s>] [--stream]  Execute command on remote target
 
+FILE TRANSFER:
+  remotecmd-cli cp --target <name> --src <path> --dst <path>  Copy file or directory to remote target
+
 CONFIGURATION:
   remotecmd-cli add-target --name <n> --token <t>    Add a known target
   remotecmd-cli remove-target --name <n>              Remove a target
@@ -278,7 +283,7 @@ CONFIGURATION:
   remotecmd-cli set-relay --url <u> --name <n>        Configure relay connection
 
 ALIAS:
-  remotecmd-cli alias install                         Install convenience aliases (rc, rcx, rcl, rcs)
+  remotecmd-cli alias install                         Install convenience aliases (rc, rcx, rcl, rcs, rcc)
   remotecmd-cli alias uninstall                       Remove installed aliases
 
 RELAY (run on relay hub machine, e.g. dk1):
@@ -294,7 +299,8 @@ DAEMON (run on target machine, e.g. p22):
   remotecmd-cli daemon status                         Check target daemon status
 
 PAIRING (add external targets):
-  remotecmd-cli pair listen [--name <n>] [--timeout <s>]  Wait for peer; prints one-liner to share
+  remotecmd-cli pair listen [--name <n>] [--timeout <s>] [--code <c>]  Wait for peer; prints one-liner to share
+  remotecmd-cli pair accept --code <c>                                   Accept a pair code (saves + signals daemon)
 
 OTHER:
   remotecmd-cli version    Show version

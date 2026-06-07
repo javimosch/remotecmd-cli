@@ -69,6 +69,13 @@ func handleAliasInstall() {
 		os.Exit(1)
 	}
 
+	// Create rcc alias
+	rccPath := filepath.Join(binDir, "rcc")
+	if err := createRccWrapper(rccPath, execPath); err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating rcc alias: %v\n", err)
+		os.Exit(1)
+	}
+
 	// Add to shell config if needed
 	shellConfig := getShellConfigPath()
 	if shellConfig != "" {
@@ -85,9 +92,10 @@ func handleAliasInstall() {
 
 	fmt.Println("Aliases installed successfully:")
 	fmt.Println("  rc  - remotecmd-cli (full access)")
-	fmt.Println("  rcx - execute command: rcx <target> <cmd> [timeout]")
+	fmt.Println("  rcx - execute command: rcx <target> <cmd> [--stream] [timeout]")
 	fmt.Println("  rcl - list targets")
 	fmt.Println("  rcs - check daemon status")
+	fmt.Println("  rcc - copy files/dirs: rcc <target> <src> <dst> [--stream]")
 }
 
 func handleAliasUninstall() {
@@ -98,7 +106,7 @@ func handleAliasUninstall() {
 	}
 
 	binDir := filepath.Join(home, ".local", "bin")
-	aliases := []string{"rc", "rcx", "rcl", "rcs"}
+	aliases := []string{"rc", "rcx", "rcl", "rcs", "rcc"}
 
 	for _, alias := range aliases {
 		path := filepath.Join(binDir, alias)
@@ -118,22 +126,24 @@ func createAliasWrapper(path, execPath string) error {
 func createRcxWrapper(path, execPath string) error {
 	content := fmt.Sprintf(`#!/bin/sh
 # rcx - Execute command on remote target via remotecmd
-# Usage: rcx <target> <command> [timeout]
+# Usage: rcx <target> <command> [--stream] [timeout]
 
 if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
     echo "rcx - Execute command on remote target"
     echo ""
-    echo "Usage: rcx <target> <command> [timeout]"
+    echo "Usage: rcx <target> <command> [--stream] [timeout]"
     echo ""
     echo "Arguments:"
     echo "  target    Target machine name (e.g., dk1, rbm20, p22)"
     echo "  command   Shell command to execute (use quotes for complex commands)"
+    echo "  --stream  Enable streaming output (JSONL progress events)"
     echo "  timeout   Optional timeout in seconds (default: 10)"
     echo ""
     echo "Examples:"
     echo "  rcx dk1 'hostname'"
-    echo "  rcx rbm20 'uptime' 15"
+    echo "  rcx rbm20 'uptime' --stream"
     echo "  rcx p22 'ls -la ~' 20"
+    echo "  rcx dk1 'long-cmd' --stream 30"
     echo ""
     echo "Available targets: use 'rcl' to list configured targets"
     exit 0
@@ -142,8 +152,8 @@ fi
 if [ $# -lt 2 ]; then
     echo "Error: target and command are required"
     echo ""
-    echo "Usage: rcx <target> <command> [timeout]"
-    echo "Example: rcx dk1 'hostname' 10"
+    echo "Usage: rcx <target> <command> [--stream] [timeout]"
+    echo "Example: rcx dk1 'hostname'"
     echo ""
     echo "Use 'rcx --help' for more information"
     exit 1
@@ -151,8 +161,25 @@ fi
 
 TARGET="$1"
 CMD="$2"
-TIMEOUT="${3:-10}"
-exec %s --target "$TARGET" --cmd "$CMD" --timeout "$TIMEOUT"
+shift 2
+STREAM_FLAG=""
+TIMEOUT="10"
+
+# Parse optional flags
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --stream)
+            STREAM_FLAG="--stream"
+            shift
+            ;;
+        *)
+            TIMEOUT="$1"
+            shift
+            ;;
+    esac
+done
+
+exec %s --target "$TARGET" --cmd "$CMD" --timeout "$TIMEOUT" $STREAM_FLAG
 `, execPath)
 	return os.WriteFile(path, []byte(content), 0755)
 }
@@ -290,10 +317,61 @@ func addBinPathToConfig(configPath, binDir string) error {
 	return err
 }
 
+func createRccWrapper(path, execPath string) error {
+	content := fmt.Sprintf(`#!/bin/sh
+# rcc - Copy files/directories to remote target via remotecmd
+# Usage: rcc <target> <src> <dst> [--stream]
+
+if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+    echo "rcc - Copy files/directories to remote target"
+    echo ""
+    echo "Usage: rcc <target> <src> <dst> [--stream]"
+    echo ""
+    echo "Arguments:"
+    echo "  target    Target machine name (e.g., dk1, rbm20, p22)"
+    echo "  src       Source file or directory path"
+    echo "  dst       Destination path on remote machine"
+    echo "  --stream  Enable streaming progress (JSONL output)"
+    echo ""
+    echo "Automatically detects if source is file or directory:"
+    echo "  - Files: copied directly"
+    echo "  - Directories: synced via tar archive"
+    echo ""
+    echo "Examples:"
+    echo "  rcc dk1 /path/to/file.txt /remote/path/file.txt"
+    echo "  rcc rbm20 /path/to/dir /remote/path/dir"
+    echo "  rcc p22 ~/config /home/user/config --stream"
+    echo ""
+    echo "Available targets: use 'rcl' to list configured targets"
+    exit 0
+fi
+
+if [ $# -lt 3 ]; then
+    echo "Error: target, src, and dst are required"
+    echo ""
+    echo "Usage: rcc <target> <src> <dst> [--stream]"
+    echo "Example: rcc dk1 /path/to/file.txt /remote/path/file.txt"
+    echo ""
+    echo "Use 'rcc --help' for more information"
+    exit 1
+fi
+
+TARGET="$1"
+SRC="$2"
+DST="$3"
+STREAM_FLAG=""
+if [ "$4" = "--stream" ]; then
+    STREAM_FLAG="--stream"
+fi
+exec %s cp --target "$TARGET" --src "$SRC" --dst "$DST" $STREAM_FLAG
+`, execPath)
+	return os.WriteFile(path, []byte(content), 0755)
+}
+
 func printAliasHelp() {
 	fmt.Println(`Usage: remotecmd-cli alias <command>
 
 Commands:
-  install    Install convenience aliases (rc, rcx, rcl, rcs)
+  install    Install convenience aliases (rc, rcx, rcl, rcs, rcc)
   uninstall  Remove installed aliases`)
 }

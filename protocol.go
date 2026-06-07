@@ -26,6 +26,11 @@ type Message struct {
 	// Pairing fields
 	Code     string `json:"code,omitempty"`
 	Hostname string `json:"hostname,omitempty"`
+	// File transfer fields
+	SrcPath  string `json:"src_path,omitempty"`
+	DstPath  string `json:"dst_path,omitempty"`
+	Content  string `json:"content,omitempty"`
+	Mode     string `json:"mode,omitempty"` // "scp" or "rsync"
 }
 
 func streamEndOK(id string, exitCode int, durationMs int64) *Message {

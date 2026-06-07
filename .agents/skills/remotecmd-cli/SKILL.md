@@ -52,6 +52,8 @@ remotecmd-cli list-targets                              # list configured target
 remotecmd-cli version                                    # show version
 ```
 
+**CRITICAL**: The `--name` in `set-relay` must match the target name you use in `add-target` and when executing commands. The daemon registers with the relay using this name, and clients look up targets by this name. If they don't match, commands will fail with "target not connected" even if the daemon is running.
+
 ### Alias Management
 ```
 remotecmd-cli alias install                             # install convenience aliases (rc, rcx, rcl, rcs)
@@ -142,3 +144,4 @@ All command execution returns JSON:
 - Test full path with simple command: `remotecmd-cli --target <name> --cmd 'echo test' --timeout 10`
 - Check daemon status on target machine
 - Verify target configuration in `~/.remotecmd/config.json`
+- **CRITICAL**: Ensure the daemon's `set-relay --name` matches the target name used in commands. The relay uses this name to look up connected daemons.

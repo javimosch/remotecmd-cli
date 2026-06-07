@@ -58,6 +58,11 @@ func handleExec(target, cmd string, timeout int, stream bool) error {
 		for {
 			var msg Message
 			if err := conn.ReadJSON(&msg); err != nil {
+				if stream {
+					emitProgress("error", map[string]interface{}{
+						"message": err.Error(),
+					})
+				}
 				errCh <- fmt.Errorf("read response: %w", err)
 				return
 			}
@@ -66,12 +71,26 @@ func handleExec(target, cmd string, timeout int, stream bool) error {
 			}
 			switch msg.Type {
 			case "stream_chunk":
-				if msg.StreamName == "stderr" {
-					fmt.Fprint(os.Stderr, msg.Data)
+				if stream {
+					emitProgress("chunk", map[string]interface{}{
+						"stream": msg.StreamName,
+						"data":   msg.Data,
+					})
 				} else {
-					fmt.Fprint(os.Stdout, msg.Data)
+					if msg.StreamName == "stderr" {
+						fmt.Fprint(os.Stderr, msg.Data)
+					} else {
+						fmt.Fprint(os.Stdout, msg.Data)
+					}
 				}
 			case "stream_end", "result":
+				if stream {
+					emitProgress("complete", map[string]interface{}{
+						"ok":         msg.OK,
+						"exit_code":  msg.ExitCode,
+						"duration":  msg.DurationMs,
+					})
+				}
 				resultCh <- &msg
 				return
 			}
@@ -83,15 +102,14 @@ func handleExec(target, cmd string, timeout int, stream bool) error {
 		if result.Type == "result" || !stream {
 			out, _ := json.MarshalIndent(result, "", "  ")
 			fmt.Println(string(out))
-		} else {
-			// streaming: print compact end summary to stderr so stdout stays clean
-			out, _ := json.MarshalIndent(result, "", "  ")
-			fmt.Fprintln(os.Stderr, string(out))
 		}
 		return nil
 	case err := <-errCh:
 		return err
 	case <-time.After(time.Duration(timeout+5) * time.Second):
+		if stream {
+			emitProgress("timeout", map[string]interface{}{})
+		}
 		return fmt.Errorf("timed out waiting for response from %q", target)
 	}
 }
