@@ -15,6 +15,11 @@
 > WebSocket relay + token auth. Works over Tailscale, public internet, NAT, firewalls.
 > SSH was built for one machine. remotecmd-cli was built for ten, a hundred, a thousand.
 
+<p align="center">
+  <a href="https://rcmd.intrane.fr"><b>☁️ Hosted relay available</b></a> —
+  €9/mo, unlimited targets, zero infra. <a href="https://rcmd.intrane.fr">rcmd.intrane.fr</a>
+</p>
+
 ## TL;DR
 
 ```bash
