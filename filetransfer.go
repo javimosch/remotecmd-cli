@@ -25,12 +25,12 @@ func handleCP(args []string) {
 	if *target == "" || *src == "" || *dst == "" {
 		fmt.Fprintln(os.Stderr, "Error: --target, --src, and --dst are required")
 		fmt.Fprintln(os.Stderr, "Usage: remotecmd-cli cp --target <name> --src <path> --dst <path> [--stream]")
-		os.Exit(1)
+		osExit(ExitConfigError)
 	}
 
 	if err := handleFileTransfer(*target, *src, *dst, *stream); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		osExit(ExitConfigError)
 	}
 	if !*stream {
 		fmt.Printf("Copy completed successfully\n")

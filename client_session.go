@@ -140,17 +140,17 @@ func handleClientSubcommand(args []string) {
 	cfg, err := loadConfig()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(ExitConfigError)
+		osExit(ExitConfigError)
 	}
 	if cfg.Relay.URL == "" {
 		fmt.Fprintln(os.Stderr, "Error: relay not configured")
-		os.Exit(ExitConfigError)
+		osExit(ExitConfigError)
 	}
 
 	session, err := newClientSession(cfg.Relay.URL)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(classifyError(err))
+		osExit(classifyError(err))
 	}
 	defer session.Close()
 

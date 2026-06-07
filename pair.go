@@ -15,7 +15,7 @@ import (
 func handlePairSubcommand(args []string) {
 	if len(args) < 1 {
 		printPairHelp()
-		os.Exit(1)
+		osExit(ExitConfigError)
 	}
 	switch args[0] {
 	case "listen":
@@ -24,7 +24,7 @@ func handlePairSubcommand(args []string) {
 		handlePairAccept(args[1:])
 	default:
 		printPairHelp()
-		os.Exit(1)
+		osExit(ExitConfigError)
 	}
 }
 
@@ -38,11 +38,11 @@ func handlePairListen(args []string) {
 	cfg, err := loadConfig()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
-		os.Exit(1)
+		osExit(ExitConfigError)
 	}
 	if cfg.Relay.URL == "" {
 		fmt.Fprintln(os.Stderr, "Error: relay not configured. Run: remotecmd-cli set-relay --url <url> --name <name>")
-		os.Exit(1)
+		osExit(ExitConfigError)
 	}
 
 	code := *codeFlag
@@ -54,13 +54,13 @@ func handlePairListen(args []string) {
 	conn, _, err := websocket.DefaultDialer.Dial(u, nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error connecting to relay: %v\n", err)
-		os.Exit(1)
+		osExit(ExitConfigError)
 	}
 	defer conn.Close()
 
 	if err := conn.WriteJSON(&Message{Type: "pair_listen", Code: code}); err != nil {
 		fmt.Fprintf(os.Stderr, "Error sending pair_listen: %v\n", err)
-		os.Exit(1)
+		osExit(ExitConfigError)
 	}
 
 	oneLiner := fmt.Sprintf(
@@ -105,7 +105,7 @@ func handlePairListen(args []string) {
 			// (no raw hostname entry to avoid duplicates like "dk1" + "vpspoly1")
 			if err := addTargetWithRelayName(*name, msg.Token, remoteHostname); err != nil {
 				fmt.Fprintf(os.Stderr, "Error saving target: %v\n", err)
-				os.Exit(1)
+				osExit(ExitConfigError)
 			}
 			fmt.Printf("\nPeer connected! Target %q added (relay name: %s)\n", *name, remoteHostname)
 			fmt.Printf("Run: remotecmd-cli --target %s --cmd 'hostname'\n", *name)
@@ -113,7 +113,7 @@ func handlePairListen(args []string) {
 			// No alias — save under the remote hostname directly
 			if err := addTarget(remoteHostname, msg.Token); err != nil {
 				fmt.Fprintf(os.Stderr, "Error saving target: %v\n", err)
-				os.Exit(1)
+				osExit(ExitConfigError)
 			}
 			targetName := remoteHostname
 			if *name != "" {
@@ -124,10 +124,10 @@ func handlePairListen(args []string) {
 		}
 	case err := <-errCh:
 		fmt.Fprintf(os.Stderr, "Connection error: %v\n", err)
-		os.Exit(1)
+		osExit(ExitConfigError)
 	case <-time.After(time.Duration(*timeoutSec) * time.Second):
 		fmt.Fprintf(os.Stderr, "Timed out waiting for peer after %ds\n", *timeoutSec)
-		os.Exit(1)
+		osExit(ExitConfigError)
 	}
 }
 
@@ -145,13 +145,13 @@ func handlePairAccept(args []string) {
 	if *codeFlag == "" {
 		fmt.Fprintln(os.Stderr, "Error: --code is required")
 		fmt.Fprintln(os.Stderr, "Usage: remotecmd-cli pair accept --code <code>")
-		os.Exit(1)
+		osExit(ExitConfigError)
 	}
 
 	// Save the pair code to disk
 	if err := savePairCode(*codeFlag); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: could not save pair code: %v\n", err)
-		os.Exit(1)
+		osExit(ExitConfigError)
 	}
 	fmt.Printf("Pair code %q saved to %s\n", *codeFlag, pairCodePath())
 

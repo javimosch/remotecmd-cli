@@ -11,7 +11,7 @@ const Version = "1.2.0"
 func main() {
 	if len(os.Args) < 2 {
 		printHelp()
-		os.Exit(1)
+		osExit(ExitConfigError)
 	}
 
 	first := os.Args[1]
@@ -53,6 +53,6 @@ func main() {
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", first)
 		printHelp()
-		os.Exit(ExitConfigError)
+		osExit(ExitConfigError)
 	}
 }

@@ -9,21 +9,21 @@ import (
 func handleRelaySubcommand(args []string) {
 	if len(args) < 1 {
 		printRelayHelp()
-		os.Exit(ExitConfigError)
+		osExit(ExitConfigError)
 	}
 	switch args[0] {
 	case "daemon":
 		handleRelayDaemon(args[1:])
 	default:
 		printRelayHelp()
-		os.Exit(ExitConfigError)
+		osExit(ExitConfigError)
 	}
 }
 
 func handleRelayDaemon(args []string) {
 	if len(args) < 1 {
 		printRelayDaemonHelp()
-		os.Exit(ExitConfigError)
+		osExit(ExitConfigError)
 	}
 	switch args[0] {
 	case "start":
@@ -36,7 +36,7 @@ func handleRelayDaemon(args []string) {
 		handleRelaySystemdSubcommand(args[1:])
 	default:
 		printRelayDaemonHelp()
-		os.Exit(ExitConfigError)
+		osExit(ExitConfigError)
 	}
 }
 
@@ -59,7 +59,7 @@ func handleRelayDaemonStart(args []string) {
 		err := startBackground(relayPidFile, relayLogFile, childArgs...)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(classifyError(err))
+			osExit(classifyError(err))
 		}
 		pid := readPid(relayPidFile)
 		fmt.Printf("Relay daemon started on port %d (PID %d)\n", *port, pid)
@@ -77,7 +77,7 @@ func handleRelayDaemonStart(args []string) {
 func handleRelayDaemonStop() {
 	if err := stopBackground(relayPidFile); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(classifyError(err))
+		osExit(classifyError(err))
 	}
 	fmt.Println("Relay daemon stopped")
 }
@@ -89,7 +89,7 @@ func handleRelayDaemonStatus() {
 func handleDaemonSubcommand(args []string) {
 	if len(args) < 1 {
 		printDaemonHelp()
-		os.Exit(ExitConfigError)
+		osExit(ExitConfigError)
 	}
 	switch args[0] {
 	case "start":
@@ -102,7 +102,7 @@ func handleDaemonSubcommand(args []string) {
 		handleDaemonSystemdSubcommand(args[1:])
 	default:
 		printDaemonHelp()
-		os.Exit(ExitConfigError)
+		osExit(ExitConfigError)
 	}
 }
 
@@ -120,7 +120,7 @@ func handleDaemonStart(args []string) {
 		err := startBackground(daemonPidFile, daemonLogFile, childArgs...)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(classifyError(err))
+			osExit(classifyError(err))
 		}
 		pid := readPid(daemonPidFile)
 		fmt.Printf("Daemon started (PID %d)\n", pid)
@@ -147,7 +147,7 @@ func handleDaemonStart(args []string) {
 func handleDaemonStop() {
 	if err := stopBackground(daemonPidFile); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(classifyError(err))
+		osExit(classifyError(err))
 	}
 	fmt.Println("Daemon stopped")
 }

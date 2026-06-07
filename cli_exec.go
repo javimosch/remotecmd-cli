@@ -18,12 +18,12 @@ func handleExecFlags(args []string) {
 	if *target == "" || *cmd == "" {
 		fmt.Fprintln(os.Stderr, "Error: --target and --cmd are required")
 		fmt.Fprintln(os.Stderr, "Usage: remotecmd-cli --target <name> --cmd <command> [--timeout <seconds>] [--stream]")
-		os.Exit(ExitConfigError)
+		osExit(ExitConfigError)
 	}
 
 	if err := handleExec(*target, *cmd, *timeout, *stream); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(classifyError(err))
+		osExit(classifyError(err))
 	}
 }
 
@@ -42,7 +42,7 @@ func handleExecSubcommand(args []string) {
 	if *cmd == "" {
 		fmt.Fprintln(os.Stderr, "Error: --cmd is required")
 		fmt.Fprintln(os.Stderr, "Usage: remotecmd-cli exec --cmd <command> [--target <name> | --targets <list> | --group <name>] [--timeout <s>] [--stream] [--format json|table]")
-		os.Exit(ExitConfigError)
+		osExit(ExitConfigError)
 	}
 
 	var targetList []string
@@ -53,7 +53,7 @@ func handleExecSubcommand(args []string) {
 		targetList, err = resolveTargets(*group, true)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(ExitConfigError)
+			osExit(ExitConfigError)
 		}
 		isMulti = len(targetList) > 1
 	} else if *targets != "" {
@@ -61,7 +61,7 @@ func handleExecSubcommand(args []string) {
 		targetList, err = resolveTargets(*targets, false)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(ExitConfigError)
+			osExit(ExitConfigError)
 		}
 		isMulti = len(targetList) > 1
 	} else if *target != "" {
@@ -69,16 +69,16 @@ func handleExecSubcommand(args []string) {
 		cfg, err := loadConfig()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(classifyError(err))
+			osExit(classifyError(err))
 		}
 		if _, ok := cfg.Targets[*target]; !ok {
 			fmt.Fprintf(os.Stderr, "Error: unknown target %q\n", *target)
-			os.Exit(ExitConfigError)
+			osExit(ExitConfigError)
 		}
 		isMulti = false
 	} else {
 		fmt.Fprintln(os.Stderr, "Error: one of --target, --targets, or --group is required")
-		os.Exit(ExitConfigError)
+		osExit(ExitConfigError)
 	}
 
 	_ = parallel
@@ -89,12 +89,12 @@ func handleExecSubcommand(args []string) {
 		}
 		if err := handleMultiExec(targetList, *cmd, *timeout, *format); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(classifyError(err))
+			osExit(classifyError(err))
 		}
 	} else {
 		if err := handleExec(targetList[0], *cmd, *timeout, *stream); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(classifyError(err))
+			osExit(classifyError(err))
 		}
 	}
 }
@@ -102,7 +102,7 @@ func handleExecSubcommand(args []string) {
 func handleGroupSubcommand(args []string) {
 	if len(args) < 1 {
 		printGroupHelp()
-		os.Exit(ExitConfigError)
+		osExit(ExitConfigError)
 	}
 	switch args[0] {
 	case "create":
@@ -117,7 +117,7 @@ func handleGroupSubcommand(args []string) {
 		handleGroupList()
 	default:
 		printGroupHelp()
-		os.Exit(ExitConfigError)
+		osExit(ExitConfigError)
 	}
 }
 
@@ -129,7 +129,7 @@ func handleGroupCreate(args []string) {
 
 	if *name == "" || *targets == "" {
 		fmt.Fprintln(os.Stderr, "Error: --name and --targets are required")
-		os.Exit(ExitConfigError)
+		osExit(ExitConfigError)
 	}
 
 	list := strings.Split(*targets, ",")
@@ -139,7 +139,7 @@ func handleGroupCreate(args []string) {
 
 	if err := groupCreate(*name, list); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(ExitConfigError)
+		osExit(ExitConfigError)
 	}
 	fmt.Printf("Group %q created with %d targets\n", *name, len(list))
 }
@@ -151,12 +151,12 @@ func handleGroupDelete(args []string) {
 
 	if *name == "" {
 		fmt.Fprintln(os.Stderr, "Error: --name is required")
-		os.Exit(ExitConfigError)
+		osExit(ExitConfigError)
 	}
 
 	if err := groupDelete(*name); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(ExitConfigError)
+		osExit(ExitConfigError)
 	}
 	fmt.Printf("Group %q deleted\n", *name)
 }
@@ -169,7 +169,7 @@ func handleGroupAdd(args []string) {
 
 	if *name == "" || *targets == "" {
 		fmt.Fprintln(os.Stderr, "Error: --name and --targets are required")
-		os.Exit(ExitConfigError)
+		osExit(ExitConfigError)
 	}
 
 	list := strings.Split(*targets, ",")
@@ -179,7 +179,7 @@ func handleGroupAdd(args []string) {
 
 	if err := groupAddTargets(*name, list); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(ExitConfigError)
+		osExit(ExitConfigError)
 	}
 	fmt.Printf("Targets added to group %q\n", *name)
 }
@@ -192,7 +192,7 @@ func handleGroupRemove(args []string) {
 
 	if *name == "" || *targets == "" {
 		fmt.Fprintln(os.Stderr, "Error: --name and --targets are required")
-		os.Exit(ExitConfigError)
+		osExit(ExitConfigError)
 	}
 
 	list := strings.Split(*targets, ",")
@@ -202,7 +202,7 @@ func handleGroupRemove(args []string) {
 
 	if err := groupRemoveTargets(*name, list); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(ExitConfigError)
+		osExit(ExitConfigError)
 	}
 	fmt.Printf("Targets removed from group %q\n", *name)
 }
@@ -210,6 +210,6 @@ func handleGroupRemove(args []string) {
 func handleGroupList() {
 	if err := groupList(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(ExitInternal)
+		osExit(ExitInternal)
 	}
 }

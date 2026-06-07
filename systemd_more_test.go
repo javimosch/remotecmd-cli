@@ -1,7 +1,6 @@
 package main
 
 import (
-	"os"
 	"strings"
 	"testing"
 )
@@ -46,19 +45,4 @@ func TestSystemdFunctionsNoPanic(t *testing.T) {
 	}
 }
 
-func TestHandleClientSubcommandNoRelay(t *testing.T) {
-	// Without a configured relay, handleClientSubcommand should exit with code 3
-	_, cleanup := setupTestConfig(t)
-	defer cleanup()
 
-	// Set HOME to a temp dir with no config
-	if os.Getenv("HOME") != "" {
-		// The function will try to load config and fail with "relay not configured"
-		// We can't easily catch os.Exit(ExitConfigError), but we can verify
-		// the config is empty (no relay URL)
-		cfg, _ := loadConfig()
-		if cfg.Relay.URL != "" {
-			t.Error("expected empty relay URL")
-		}
-	}
-}

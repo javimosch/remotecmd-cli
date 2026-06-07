@@ -9,7 +9,7 @@ import (
 func handleAliasSubcommand(args []string) {
 	if len(args) < 1 {
 		printAliasHelp()
-		os.Exit(1)
+		osExit(ExitConfigError)
 	}
 	switch args[0] {
 	case "install":
@@ -18,7 +18,7 @@ func handleAliasSubcommand(args []string) {
 		handleAliasUninstall()
 	default:
 		printAliasHelp()
-		os.Exit(1)
+		osExit(ExitConfigError)
 	}
 }
 
@@ -26,54 +26,54 @@ func handleAliasInstall() {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: cannot determine home directory: %v\n", err)
-		os.Exit(1)
+		osExit(ExitConfigError)
 	}
 
 	binDir := filepath.Join(home, ".local", "bin")
 	if err := os.MkdirAll(binDir, 0755); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: cannot create bin directory: %v\n", err)
-		os.Exit(1)
+		osExit(ExitConfigError)
 	}
 
 	execPath, err := os.Executable()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: cannot get executable path: %v\n", err)
-		os.Exit(1)
+		osExit(ExitConfigError)
 	}
 
 	// Create rc alias
 	rcPath := filepath.Join(binDir, "rc")
 	if err := createAliasWrapper(rcPath, execPath); err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating rc alias: %v\n", err)
-		os.Exit(1)
+		osExit(ExitConfigError)
 	}
 
 	// Create rcx alias
 	rcxPath := filepath.Join(binDir, "rcx")
 	if err := createRcxWrapper(rcxPath, execPath); err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating rcx alias: %v\n", err)
-		os.Exit(1)
+		osExit(ExitConfigError)
 	}
 
 	// Create rcl alias
 	rclPath := filepath.Join(binDir, "rcl")
 	if err := createRclWrapper(rclPath, execPath); err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating rcl alias: %v\n", err)
-		os.Exit(1)
+		osExit(ExitConfigError)
 	}
 
 	// Create rcs alias
 	rcsPath := filepath.Join(binDir, "rcs")
 	if err := createRcsWrapper(rcsPath, execPath); err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating rcs alias: %v\n", err)
-		os.Exit(1)
+		osExit(ExitConfigError)
 	}
 
 	// Create rcc alias
 	rccPath := filepath.Join(binDir, "rcc")
 	if err := createRccWrapper(rccPath, execPath); err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating rcc alias: %v\n", err)
-		os.Exit(1)
+		osExit(ExitConfigError)
 	}
 
 	// Add to shell config if needed
@@ -102,7 +102,7 @@ func handleAliasUninstall() {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: cannot determine home directory: %v\n", err)
-		os.Exit(1)
+		osExit(ExitConfigError)
 	}
 
 	binDir := filepath.Join(home, ".local", "bin")
