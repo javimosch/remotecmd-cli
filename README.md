@@ -8,8 +8,9 @@
 <h1 align="center">remotecmd-cli — Remote execution for your entire fleet</h1>
 
 <p align="center">
-  <b>One binary. Zero open ports. JSON output. Multi-target.</b><br>
-  Execute commands on 1 or 100 machines with a single command.
+  <b>One binary. Zero open ports. JSON output. Agent-friendly.</b><br>
+  Execute commands on 1 or 100 machines with a single command.<br>
+  Built for AI agents — structured JSON, deterministic timeouts, zero parsing.
 </p>
 
 > WebSocket relay + token auth. Works over Tailscale, public internet, NAT, firewalls.
