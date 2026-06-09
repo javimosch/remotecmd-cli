@@ -13,78 +13,52 @@
   Built for AI agents — structured JSON, deterministic timeouts, zero parsing.
 </p>
 
-> WebSocket relay + token auth. Works over Tailscale, public internet, NAT, firewalls.
-> SSH was built for one machine. remotecmd-cli was built for ten, a hundred, a thousand.
+> WebSocket relay + token auth. NAT-proof. Agent-friendly.
 
 <p align="center">
-  <a href="https://rcmd.intrane.fr"><b>☁️ Hosted relay available — €5/mo, unlimited targets</b></a>
+  <a href="https://rcmd.intrane.fr"><b>☁️ Hosted relay — €5/mo, unlimited targets</b></a>
 </p>
 
-## TL;DR
+## Quick start
 
 ```bash
-# 1. Start relay on any reachable VPS
+# On a VPS — start a relay (one time)
 remotecmd-cli relay daemon start --port 3032 -daemon
 
-# 2. Add a machine in 10 seconds
+# On any target machine — connect to the relay
 remotecmd-cli pair listen --name myserver
-# Share the printed one-liner with the remote machine
+# Paste the one-liner on the target. Done.
 
-# 3. Run on a single target
+# From anywhere — execute commands
 remotecmd-cli --target myserver --cmd 'uptime'
 
-# 4. Run on multiple targets at once
-remotecmd-cli exec --targets web1,web2,web3 --cmd 'systemctl restart nginx'
-
-# 5. Organize into groups and blast commands
-remotecmd-cli group create prod-web --targets web1,web2,web3
-remotecmd-cli exec --group prod-web --cmd 'df -h /data'
-
-# 6. Output as table or JSON
-remotecmd-cli exec --group prod-web --cmd 'hostname' --format table
-remotecmd-cli exec --group prod-web --cmd 'hostname' --format json
+# JSON output, zero parsing
+# {"ok":true,"stdout":"myserver\n","exit_code":0,"duration_ms":8}
 ```
+
+**Install:** `curl -sSL https://github.com/javimosch/remotecmd-cli/releases/latest/download/remotecmd-cli-linux-amd64 -o /usr/local/bin/remotecmd-cli && chmod +x /usr/local/bin/remotecmd-cli`
+
+## Why not SSH?
+
+SSH needs open ports, key management, VPN for NAT, and its output is text — AI agents can't parse it reliably. remotecmd uses a WebSocket relay: daemons connect *out* (no inbound ports), the relay routes commands by name + token, and every command returns structured JSON.
 
 ---
 
-## The Problem
-
-Executing a command on a remote machine shouldn't require:
-- Setting up SSH key pairs and managing `authorized_keys`
-- Opening firewall ports or configuring VPNs
-- Dealing with NAT traversal or dynamic IPs
-- Installing heavyweight remote management tools
-
-**For multiple machines**, the problem compounds. You loop in bash. You write ad-hoc scripts. You pray you don't hit the wrong one.
-
-**For AI agents**, the situation is worse — they need a clean, scriptable interface that:
-- Returns structured JSON (stdout, stderr, exit code, duration) every time
-- Handles timeouts deterministically
-- Works reliably over unstable connections
-- Requires zero parsing or regex extraction
-
-Most tools output human-readable text or inconsistent formats. Agents waste tokens parsing, guessing, and retrying. remotecmd-cli is built the other way around: **JSON by default, human-readable on request**.
-
-## The Solution
-
-remotecmd-cli uses a **WebSocket relay** as the routing hub. Machines connect *out* to the relay (no inbound ports needed) and the relay routes commands between them by token-authenticated target name.
+## How it works
 
 ```
-Client  ──ws──►  Relay Hub  ──ws──►  Target Daemon 1
-                    │             └──  Target Daemon 2
-                    │             └──  Target Daemon N
-                    ▲
-              (VPS or any
-              reachable host)
+Client ──ws──► Relay Hub ◄──ws── Target Daemon
 ```
 
-- **Zero inbound ports** on target machines — daemons connect out
-- **Token auth** — each target has a unique secret token
-- **Streaming** — real-time stdout/stderr, line by line
-- **Multi-target** — fan-out to any number of connected targets simultaneously
-- **Groups** — organize targets by role, environment, or project
-- **Pair in seconds** — one curl one-liner to add any machine
-- **Agent-first** — JSON output by default, no parsing required
+1. Run a relay on any VPS (one `daemon start` command)
+2. Daemons on your servers connect *out* to the relay
+3. Clients send commands to the relay → relay routes to the target
+4. Result comes back as JSON — always structured, never text to parse
+
+- **Zero inbound ports** — daemons connect out. No firewall rules.
+- **Token auth** — auto-generated per target. No SSH keys.
+- **Agent-first** — every command returns `{"stdout":"...","exit_code":0}`
+- **NAT-proof** — works from anywhere (Tailscale, corporate proxy, 4G)
 
 ---
 
