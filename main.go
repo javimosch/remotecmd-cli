@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-const Version = "1.2.0"
+const Version = "1.3.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -27,7 +27,7 @@ func main() {
 	case "remove-target":
 		handleRemoveTarget(os.Args[2:])
 	case "list-targets":
-		handleListTargets()
+		handleListTargets(os.Args[2:])
 	case "set-relay":
 		handleSetRelay(os.Args[2:])
 	case "relay":
@@ -46,6 +46,10 @@ func main() {
 		handleGroupSubcommand(os.Args[2:])
 	case "client":
 		handleClientSubcommand(os.Args[2:])
+	case "tunnel":
+		handleTunnel(os.Args[2:])
+	case "feedback":
+		handleFeedback(os.Args[2:])
 	case "version":
 		fmt.Println("remotecmd-cli version", Version)
 	case "help", "--help", "-h":
