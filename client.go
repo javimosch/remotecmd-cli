@@ -113,6 +113,62 @@ func handleExec(target, cmd string, timeout int, stream bool) error {
 	}
 }
 
+// sendToRelay connects to the relay, sends a single message, and returns the result.
+// Used by the MCP server and other programmatic callers that need the raw result
+// without stdout printing.
+func sendToRelay(cfg *Config, msg *Message) (*Message, error) {
+	if cfg.Relay.URL == "" {
+		return nil, fmt.Errorf("relay not configured")
+	}
+
+	u := wsURL(cfg.Relay.URL)
+	conn, _, err := websocket.DefaultDialer.Dial(u, nil)
+	if err != nil {
+		return nil, fmt.Errorf("connect to relay: %w", err)
+	}
+	defer conn.Close()
+
+	if msg.ID == "" {
+		msg.ID = newID()
+	}
+
+	if err := conn.WriteJSON(msg); err != nil {
+		return nil, fmt.Errorf("send request: %w", err)
+	}
+
+	timeout := msg.Timeout
+	if timeout <= 0 {
+		timeout = 30
+	}
+
+	resultCh := make(chan *Message, 1)
+	errCh := make(chan error, 1)
+
+	go func() {
+		for {
+			var resp Message
+			if err := conn.ReadJSON(&resp); err != nil {
+				errCh <- fmt.Errorf("read response: %w", err)
+				return
+			}
+			if resp.ID != msg.ID {
+				continue
+			}
+			resultCh <- &resp
+			return
+		}
+	}()
+
+	select {
+	case result := <-resultCh:
+		return result, nil
+	case err := <-errCh:
+		return nil, err
+	case <-time.After(time.Duration(timeout+5) * time.Second):
+		return nil, fmt.Errorf("timed out waiting for response")
+	}
+}
+
 // resolveRelayTargets maps local target alias names to their relay-registered
 // names and builds the token map required by the relay's execute_multi path.
 func resolveRelayTargets(targetAliases []string) (resolved []string, tokens map[string]string, err error) {

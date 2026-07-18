@@ -67,6 +67,9 @@ PAIRING:
   remotecmd-cli pair listen [--name <n>] [--timeout <s>] [--code <c>]  Wait for peer; prints one-liner
   remotecmd-cli pair accept --code <c>                                   Accept a pair code
 
+MCP SERVER (AI agent integration):
+  remotecmd-cli mcp                                  Start MCP server (stdio mode for AI agents)
+
 OTHER:
   remotecmd-cli version    Show version
   remotecmd-cli help       Show this help`)

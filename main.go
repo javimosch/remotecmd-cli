@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-const Version = "1.4.0"
+const Version = "1.5.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -48,6 +48,8 @@ func main() {
 		handleClientSubcommand(os.Args[2:])
 	case "feedback":
 		handleFeedback(os.Args[2:])
+	case "mcp":
+		handleMCP(os.Args[2:])
 	case "version":
 		fmt.Println("remotecmd-cli version", Version)
 	case "help", "--help", "-h":
