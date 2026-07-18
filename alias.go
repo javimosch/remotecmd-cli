@@ -76,6 +76,27 @@ func handleAliasInstall() {
 		osExit(ExitConfigError)
 	}
 
+	// Create rcg alias (group management)
+	rcgPath := filepath.Join(binDir, "rcg")
+	if err := createRcgWrapper(rcgPath, execPath); err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating rcg alias: %v\n", err)
+		osExit(ExitConfigError)
+	}
+
+	// Create rcd alias (daemon management)
+	rcdPath := filepath.Join(binDir, "rcd")
+	if err := createRcdWrapper(rcdPath, execPath); err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating rcd alias: %v\n", err)
+		osExit(ExitConfigError)
+	}
+
+	// Create rcr alias (relay management)
+	rcrPath := filepath.Join(binDir, "rcr")
+	if err := createRcrWrapper(rcrPath, execPath); err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating rcr alias: %v\n", err)
+		osExit(ExitConfigError)
+	}
+
 	// Add to shell config if needed
 	shellConfig := getShellConfigPath()
 	if shellConfig != "" {
@@ -91,11 +112,19 @@ func handleAliasInstall() {
 	}
 
 	fmt.Println("Aliases installed successfully:")
-	fmt.Println("  rc  - remotecmd-cli (full access)")
-	fmt.Println("  rcx - execute command: rcx <target> <cmd> [--stream] [timeout]")
-	fmt.Println("  rcl - list targets")
-	fmt.Println("  rcs - check daemon status")
+	fmt.Println("  rc  - remotecmd-cli (full access to all commands)")
+	fmt.Println("  rcx - execute: rcx <target> <cmd> [--stream] [timeout]")
+	fmt.Println("        multi:    rcx --targets t1,t2 <cmd> [timeout]")
+	fmt.Println("        group:    rcx --group <name> <cmd> [timeout]")
+	fmt.Println("  rcl - list targets with health (auto-probes stale nodes >1h)")
+	fmt.Println("        rcl --refresh   force re-probe all targets")
+	fmt.Println("        rcl --json      machine-readable output")
+	fmt.Println("        rcl --no-health config-only view (legacy)")
+	fmt.Println("  rcs - check daemon status on target")
 	fmt.Println("  rcc - copy files/dirs: rcc <target> <src> <dst> [--stream]")
+	fmt.Println("  rcg - group mgmt: rcg list|create|add|remove|delete")
+	fmt.Println("  rcd - daemon mgmt: rcd start|stop|status|systemd")
+	fmt.Println("  rcr - relay mgmt:  rcr start|stop|status|systemd")
 }
 
 func handleAliasUninstall() {
@@ -106,7 +135,7 @@ func handleAliasUninstall() {
 	}
 
 	binDir := filepath.Join(home, ".local", "bin")
-	aliases := []string{"rc", "rcx", "rcl", "rcs", "rcc"}
+	aliases := []string{"rc", "rcx", "rcl", "rcs", "rcc", "rcg", "rcd", "rcr"}
 
 	for _, alias := range aliases {
 		path := filepath.Join(binDir, alias)
@@ -125,30 +154,59 @@ func createAliasWrapper(path, execPath string) error {
 
 func createRcxWrapper(path, execPath string) error {
 	content := fmt.Sprintf(`#!/bin/sh
-# rcx - Execute command on remote target via remotecmd
-# Usage: rcx <target> <command> [--stream] [timeout]
+# rcx - Execute command on remote target(s) via remotecmd
+# Usage:
+#   rcx <target> <command> [--stream] [timeout]            single target
+#   rcx --targets <t1,t2,...> <command> [timeout]          multi-target
+#   rcx --group <name> <command> [timeout]                 group
 
 if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
-    echo "rcx - Execute command on remote target"
+    echo "rcx - Execute command on remote target(s)"
     echo ""
-    echo "Usage: rcx <target> <command> [--stream] [timeout]"
+    echo "Usage:"
+    echo "  rcx <target> <command> [--stream] [timeout]"
+    echo "  rcx --targets <t1,t2,...> <command> [timeout]"
+    echo "  rcx --group <name> <command> [timeout]"
     echo ""
     echo "Arguments:"
     echo "  target    Target machine name (e.g., dk1, rbm20, p22)"
+    echo "  --targets Comma-separated list of targets (multi-target, table output)"
+    echo "  --group   Target group name (multi-target, table output)"
     echo "  command   Shell command to execute (use quotes for complex commands)"
-    echo "  --stream  Enable streaming output (JSONL progress events)"
-    echo "  timeout   Optional timeout in seconds (default: 10)"
+    echo "  --stream  Enable streaming output (single target only; ignored for multi)"
+    echo "  timeout   Optional timeout in seconds (default: 10 single, 30 multi)"
     echo ""
     echo "Examples:"
     echo "  rcx dk1 'hostname'"
     echo "  rcx rbm20 'uptime' --stream"
     echo "  rcx p22 'ls -la ~' 20"
-    echo "  rcx dk1 'long-cmd' --stream 30"
+    echo "  rcx --targets dk1,dk2,rbm20 'hostname'"
+    echo "  rcx --group prod 'uptime' 30"
     echo ""
     echo "Available targets: use 'rcl' to list configured targets"
     exit 0
 fi
 
+# Multi-target path: --targets or --group
+if [ "$1" = "--targets" ] || [ "$1" = "--group" ]; then
+    MODE="$1"
+    shift
+    if [ $# -lt 2 ]; then
+        echo "Error: $MODE requires a value and a command"
+        echo "Usage: rcx $MODE <value> <command> [timeout]"
+        exit 1
+    fi
+    GROUP_OR_LIST="$1"
+    CMD="$2"
+    shift 2
+    TIMEOUT="30"
+    if [ $# -gt 0 ]; then
+        TIMEOUT="$1"
+    fi
+    exec %s exec "$MODE" "$GROUP_OR_LIST" --cmd "$CMD" --timeout "$TIMEOUT" --format table
+fi
+
+# Single-target path
 if [ $# -lt 2 ]; then
     echo "Error: target and command are required"
     echo ""
@@ -180,33 +238,40 @@ while [ $# -gt 0 ]; do
 done
 
 exec %s --target "$TARGET" --cmd "$CMD" --timeout "$TIMEOUT" $STREAM_FLAG
-`, execPath)
+`, execPath, execPath)
 	return os.WriteFile(path, []byte(content), 0755)
 }
 
 func createRclWrapper(path, execPath string) error {
 	content := fmt.Sprintf(`#!/bin/sh
-# rcl - List configured remotecmd targets
+# rcl - List configured remotecmd targets with health status
+# Health probes are cached per-target for 1h; stale nodes are auto-probed.
 
 if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
-    echo "rcl - List configured remotecmd targets"
+    echo "rcl - List configured remotecmd targets with health status"
     echo ""
-    echo "Usage: rcl"
+    echo "Usage: rcl [--refresh] [--json] [--no-health]"
     echo ""
-    echo "Lists all remote targets configured in ~/.remotecmd/config.json"
-    echo "Shows target names with truncated tokens for security"
+    echo "Shows each target with status (up/down/unknown) and 'seen X ago'."
+    echo "Targets whose last probe is older than 1h (or never probed) are"
+    echo "automatically re-probed via the relay using 'hostname'."
+    echo ""
+    echo "Flags:"
+    echo "  --refresh    Force a fresh probe of every target now"
+    echo "  --json       Machine-readable JSON output"
+    echo "  --no-health  Config-only view, no probing (legacy behaviour)"
     echo ""
     echo "When a target uses a different relay name than its alias, both are shown:"
-    echo "  <alias> → <relay_name> (token: <truncated>)"
+    echo "  <alias> → <relay_name>"
     echo ""
     echo "Example output:"
-    echo "  rbm21 (token: e6b7...)"
-    echo "  dk1 → vpspoly1 (token: 5ab3...)"
-    echo "  myserver (token: a40c...)"
+    echo "  TARGET                STATUS  SEEN              HOSTNAME"
+    echo "  rbm21                 up      2min ago          rbm21"
+    echo "  dk1 → vpspoly1        down    checked 1h ago    target not connected"
     exit 0
 fi
 
-exec %s list-targets
+exec %s list-targets "$@"
 `, execPath)
 	return os.WriteFile(path, []byte(content), 0755)
 }
@@ -381,6 +446,6 @@ func printAliasHelp() {
 	fmt.Println(`Usage: remotecmd-cli alias <command>
 
 Commands:
-  install    Install convenience aliases (rc, rcx, rcl, rcs, rcc)
+  install    Install convenience aliases (rc, rcx, rcl, rcs, rcc, rcg, rcd, rcr)
   uninstall  Remove installed aliases`)
 }

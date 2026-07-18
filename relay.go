@@ -60,6 +60,7 @@ type RelayServer struct {
 	pairListeners map[string]*relayClient
 	multiPending  map[string]*multiPendingEntry
 	subToMulti    map[string]*subTargetInfo
+	tunnels       map[string]*tunnelSession
 	mu           sync.RWMutex
 }
 
@@ -75,6 +76,7 @@ func NewRelayServer() *RelayServer {
 		pairListeners: make(map[string]*relayClient),
 		multiPending:  make(map[string]*multiPendingEntry),
 		subToMulti:    make(map[string]*subTargetInfo),
+		tunnels:       make(map[string]*tunnelSession),
 	}
 }
 
@@ -496,6 +498,18 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 				Code: msg.Code,
 			})
 
+		case "tunnel_open":
+			rs.handleTunnelOpen(rc, &msg)
+
+		case "tunnel_opened":
+			rs.handleTunnelRelay(rc, &msg)
+
+		case "tunnel_data":
+			rs.handleTunnelRelay(rc, &msg)
+
+		case "tunnel_close":
+			rs.handleTunnelClose(rc, &msg)
+
 		default:
 			rc.send(&Message{Type: "error", Error: "unknown message type: " + msg.Type})
 		}
@@ -537,6 +551,23 @@ func (rs *RelayServer) unregister(rc *relayClient) {
 	for code, listener := range rs.pairListeners {
 		if listener == rc {
 			delete(rs.pairListeners, code)
+		}
+	}
+
+	// Clean up tunnels associated with this connection
+	for tid, ts := range rs.tunnels {
+		if ts.clientConn == rc || ts.daemonConn == rc {
+			// Notify the other side
+			var other *relayClient
+			if ts.clientConn == rc {
+				other = ts.daemonConn
+			} else {
+				other = ts.clientConn
+			}
+			if other != nil {
+				other.send(&Message{Type: "tunnel_close", TunnelID: tid})
+			}
+			delete(rs.tunnels, tid)
 		}
 	}
 

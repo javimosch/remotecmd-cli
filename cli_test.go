@@ -101,7 +101,7 @@ func TestHandleListTargets(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	handleListTargets()
+	handleListTargets([]string{"--no-health"})
 
 	w.Close()
 	os.Stdout = old

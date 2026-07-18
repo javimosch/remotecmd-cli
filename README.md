@@ -89,7 +89,9 @@ cd remotecmd-cli && go build -o remotecmd-cli .
 
 ```bash
 remotecmd-cli alias install
-# Installs: rc (full CLI), rcx (execute), rcl (list), rcs (status), rcc (copy)
+# Installs: rc (full CLI), rcx (execute, incl. --targets/--group),
+#           rcl (list + health), rcs (daemon status), rcc (copy),
+#           rcg (groups), rcd (daemon mgmt), rcr (relay mgmt)
 ```
 
 ---
@@ -315,10 +317,10 @@ CONFIGURATION:
   remotecmd-cli set-relay --url <u> --name <n>
   remotecmd-cli add-target --name <n> --token <t>
   remotecmd-cli remove-target --name <n>
-  remotecmd-cli list-targets
+  remotecmd-cli list-targets [--refresh] [--json] [--no-health]
 
 ALIASES:
-  remotecmd-cli alias install       Install rc / rcx / rcl / rcs / rcc
+  remotecmd-cli alias install       Install rc / rcx / rcl / rcs / rcc / rcg / rcd / rcr
   remotecmd-cli alias uninstall     Remove installed aliases
 
 RELAY:
@@ -337,10 +339,15 @@ DAEMON:
 | Alias | Equivalent | Description |
 |-------|-----------|-------------|
 | `rc` | `remotecmd-cli` | Full CLI shortcut |
-| `rcx <target> <cmd> [--stream] [timeout]` | `exec --target <t> --cmd <c>` | Execute command (default 10s) |
-| `rcl` | `list-targets` | List configured targets + groups |
+| `rcx <target> <cmd> [--stream] [timeout]` | `exec --target <t> --cmd <c>` | Execute on one target (default 10s) |
+| `rcx --targets <t1,t2> <cmd> [timeout]` | `exec --targets <list> --cmd <c>` | Execute across many targets (table) |
+| `rcx --group <name> <cmd> [timeout]` | `exec --group <g> --cmd <c>` | Execute across a group (table) |
+| `rcl [--refresh] [--json] [--no-health]` | `list-targets` | List targets with health (auto-probes stale nodes >1h) |
 | `rcs <target>` | `exec --target <t> --cmd 'status check'` | Check daemon status via PID file |
 | `rcc <target> <src> <dst> [--stream]` | `cp --target <t> --src <s> --dst <d>` | Copy files/directories |
+| `rcg list\|create\|add\|remove\|delete` | `group <sub>` | Manage target groups |
+| `rcd start\|stop\|status\|systemd` | `daemon <sub>` | Manage the local daemon |
+| `rcr start\|stop\|status\|systemd` | `relay daemon <sub>` | Manage the local relay hub |
 
 ---
 
@@ -405,6 +412,7 @@ DAEMON:
 | Scenario | Command |
 |----------|---------|
 | Quick health check | `rcx myserver 'uptime && df -h'` |
+| See which remotes are down | `rcl` (auto-probes stale nodes >1h; `rcl --refresh` to force) |
 | Fleet health check | `remotecmd-cli exec --group all --cmd 'uptime' --format table` |
 | Rolling restart | `remotecmd-cli exec --group web --cmd 'systemctl restart nginx'` |
 | Deploy to remote | `remotecmd-cli exec --target app1 --cmd 'cd /app && git pull && pm2 restart all' 60` |

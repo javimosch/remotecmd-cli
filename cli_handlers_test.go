@@ -17,7 +17,7 @@ func TestHandleListTargetsWithConfig(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	handleListTargets()
+	handleListTargets([]string{"--no-health"})
 
 	w.Close()
 	os.Stdout = old
@@ -45,7 +45,7 @@ func TestHandleListTargetsWithGroups(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	handleListTargets()
+	handleListTargets([]string{"--no-health"})
 
 	w.Close()
 	os.Stdout = old
@@ -67,7 +67,7 @@ func TestHandleListTargetsEmpty(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	handleListTargets()
+	handleListTargets([]string{"--no-health"})
 
 	w.Close()
 	os.Stdout = old

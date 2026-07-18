@@ -15,7 +15,7 @@ cd "$(dirname "$0")"
 RC="./remotecmd-cli"
 
 if [ ${#TARGETS[@]} -eq 0 ]; then
-  mapfile -t TARGETS < <($RC list-targets 2>/dev/null | grep -oP '^\S+' | sed 's/→//g' | tr -d ' ')
+  mapfile -t TARGETS < <($RC list-targets --no-health 2>/dev/null | grep -oP '^\S+' | sed 's/→//g' | tr -d ' ')
 fi
 
 if [ ${#TARGETS[@]} -eq 0 ]; then
@@ -43,7 +43,7 @@ echo ""
 echo "── 2. CLI basics ──"
 $RC version >/dev/null 2>&1;                                 check "version" $?
 $RC help >/dev/null 2>&1;                                    check "help" $?
-$RC list-targets >/dev/null 2>&1;                            check "list-targets" $?
+$RC list-targets --no-health >/dev/null 2>&1;            check "list-targets" $?
 
 # ── 3. Group management ──
 echo ""
@@ -137,9 +137,37 @@ $RC nonexistent-command 2>/dev/null && E=0 || E=$?; [ "$E" -eq 3 ] && pass "exit
 
 # ── 13. rcl alias ──
 echo ""
-echo "── 13. rcl alias ──"
-rcl >/dev/null 2>&1;                                           check "rcl" $?
+echo "── 13. rcl alias (health) ──"
+rcl --no-health >/dev/null 2>&1;                               check "rcl --no-health" $?
 rcl --help >/dev/null 2>&1;                                    check "rcl --help" $?
+rcl --refresh >/dev/null 2>&1;                                 check "rcl --refresh (probes all)" $?
+rcl --json >/dev/null 2>&1;                                    check "rcl --json" $?
+
+# ── 14. New aliases: rcg / rcd / rcr / rcx multi ──
+echo ""
+echo "── 14. rcg / rcd / rcr / rcx multi ──"
+rcg --help >/dev/null 2>&1;                                    check "rcg --help" $?
+rcg list >/dev/null 2>&1;                                      check "rcg list" $?
+rcg create --name smoke-grp --targets "$FIRST" >/dev/null 2>&1; check "rcg create" $?
+rcg delete --name smoke-grp >/dev/null 2>&1;                   check "rcg delete" $?
+
+rcd --help >/dev/null 2>&1;                                    check "rcd --help" $?
+rcd status >/dev/null 2>&1;                                    check "rcd status" $?
+
+rcr --help >/dev/null 2>&1;                                    check "rcr --help" $?
+
+# rcx multi-target (needs ≥2 targets)
+if [ ${#TARGETS[@]} -ge 2 ]; then
+  LIST=$(IFS=,; echo "${TARGETS[*]}")
+  rcx --targets "$LIST" 'hostname' >/dev/null 2>&1;            check "rcx --targets" $?
+else
+  echo "  ⏭  skip rcx --targets (need ≥2 targets)"
+fi
+
+# rcx --group (reuse a transient group)
+rcg create --name smoke-rcx --targets "$FIRST" >/dev/null 2>&1
+rcx --group smoke-rcx 'hostname' >/dev/null 2>&1;              check "rcx --group" $?
+rcg delete --name smoke-rcx >/dev/null 2>&1
 
 # ── Summary ──
 echo ""

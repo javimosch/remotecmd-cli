@@ -42,6 +42,9 @@ type Message struct {
 	Tokens      map[string]string `json:"tokens,omitempty"`
 	Results     map[string]*Message `json:"results,omitempty"`
 	Parallel    int               `json:"parallel,omitempty"`
+	// Tunnel fields
+	TunnelID   string `json:"tunnel_id,omitempty"`
+	RemoteAddr string `json:"remote_addr,omitempty"`
 }
 
 func streamEndOK(id string, exitCode int, durationMs int64) *Message {

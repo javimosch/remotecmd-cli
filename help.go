@@ -16,10 +16,15 @@ EXECUTE (multi-target):
 FILE TRANSFER:
   remotecmd-cli cp --target <name> --src <path> --dst <path>  Copy file or directory to remote target
 
+TUNNEL (port forwarding):
+  remotecmd-cli tunnel --target <name> --local <port> --remote <host:port>
+                                                     Forward local port to remote address via relay (replaces ssh -L)
+
 TARGET CONFIGURATION:
   remotecmd-cli add-target --name <n> --token <t>    Add a known target
   remotecmd-cli remove-target --name <n>              Remove a target
-  remotecmd-cli list-targets                          List configured targets and groups
+  remotecmd-cli list-targets [--refresh] [--json] [--no-health]
+                                                     List targets with health (auto-probes stale nodes >1h)
   remotecmd-cli set-relay --url <u> --name <n>        Configure relay connection
 
 GROUP MANAGEMENT:
@@ -30,8 +35,17 @@ GROUP MANAGEMENT:
   remotecmd-cli group list                                     List all groups
 
 ALIAS:
-  remotecmd-cli alias install                         Install convenience aliases (rc, rcx, rcl, rcs, rcc)
+  remotecmd-cli alias install                         Install convenience aliases (rc, rcx, rcl, rcs, rcc, rcg, rcd, rcr)
   remotecmd-cli alias uninstall                       Remove installed aliases
+
+  rc  - remotecmd-cli (full access)
+  rcx - execute: rcx <target> <cmd> [--stream] [timeout] | rcx --targets <list> <cmd> | rcx --group <g> <cmd>
+  rcl - list targets with health: rcl [--refresh] [--json] [--no-health]
+  rcs - check daemon status on target
+  rcc - copy files/dirs: rcc <target> <src> <dst> [--stream]
+  rcg - group mgmt: rcg list|create|add|remove|delete
+  rcd - daemon mgmt: rcd start|stop|status|systemd
+  rcr - relay mgmt:  rcr start|stop|status|systemd
 
 RELAY (run on relay hub machine):
   remotecmd-cli relay daemon start [--port 3032]     Start relay hub (foreground)

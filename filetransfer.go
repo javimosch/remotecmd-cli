@@ -189,7 +189,7 @@ func handleFileTransfer(target, src, dst string, stream bool) error {
 		return nil
 	case err := <-errCh:
 		return fmt.Errorf("connection error: %v", err)
-	case <-time.After(30 * time.Second):
+	case <-time.After(10 * time.Minute):
 		if stream {
 			emitProgress("timeout", map[string]interface{}{})
 		}

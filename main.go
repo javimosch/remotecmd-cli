@@ -27,7 +27,7 @@ func main() {
 	case "remove-target":
 		handleRemoveTarget(os.Args[2:])
 	case "list-targets":
-		handleListTargets()
+		handleListTargets(os.Args[2:])
 	case "set-relay":
 		handleSetRelay(os.Args[2:])
 	case "relay":

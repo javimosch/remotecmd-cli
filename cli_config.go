@@ -41,8 +41,14 @@ func handleRemoveTarget(args []string) {
 	fmt.Printf("Target %q removed\n", *name)
 }
 
-func handleListTargets() {
-	if err := listTargets(); err != nil {
+func handleListTargets(args []string) {
+	fs := flag.NewFlagSet("list-targets", flag.ExitOnError)
+	refresh := fs.Bool("refresh", false, "force a fresh health probe of every target")
+	noHealth := fs.Bool("no-health", false, "skip health probing; show config-only view (legacy)")
+	jsonOut := fs.Bool("json", false, "machine-readable JSON output")
+	fs.Parse(args)
+
+	if err := listTargetsSmart(*refresh, *noHealth, *jsonOut); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		osExit(ExitInternal)
 	}

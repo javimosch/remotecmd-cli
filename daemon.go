@@ -136,6 +136,15 @@ func (td *TargetDaemon) run() {
 			log.Printf("Pair confirmed (code=%s)", msg.Code)
 			deletePairCode()
 
+		case "tunnel_open":
+			go td.handleTunnelOpen(&msg)
+
+		case "tunnel_data":
+			td.handleTunnelData(&msg)
+
+		case "tunnel_close":
+			td.handleTunnelClose(&msg)
+
 		case "error":
 			// Suppress pair-related errors — daemon retries automatically
 			if strings.HasPrefix(msg.Error, "pair") {
