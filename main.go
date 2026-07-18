@@ -27,7 +27,7 @@ func main() {
 	case "remove-target":
 		handleRemoveTarget(os.Args[2:])
 	case "list-targets":
-		handleListTargets(os.Args[2:])
+		handleListTargets()
 	case "set-relay":
 		handleSetRelay(os.Args[2:])
 	case "relay":
@@ -46,8 +46,6 @@ func main() {
 		handleGroupSubcommand(os.Args[2:])
 	case "client":
 		handleClientSubcommand(os.Args[2:])
-	case "tunnel":
-		handleTunnel(os.Args[2:])
 	case "feedback":
 		handleFeedback(os.Args[2:])
 	case "version":

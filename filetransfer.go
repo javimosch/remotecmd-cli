@@ -9,10 +9,48 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/gorilla/websocket"
 )
+
+// defaultMaxTransferBytes bounds a single `cp` payload. The whole file is
+// base64-encoded into ONE WebSocket message (see handleFileTransfer), so a large
+// file is held in memory ~3x over and, more importantly, is silently dropped by
+// the hosted relay / its reverse proxy once it exceeds their frame limit — the
+// client would otherwise hang with no error (issue #1). 100 MB sits safely below
+// the observed ~200 MB break point. Override with REMOTECMD_MAX_TRANSFER_MB
+// (set to 0 to disable the check, e.g. for a self-hosted relay with a raised
+// proxy limit). Transparent chunking is tracked separately as the real fix.
+const defaultMaxTransferBytes = 100 << 20 // 100 MB
+
+// maxTransferBytes returns the current per-transfer payload limit in bytes. A
+// value of 0 disables the limit. Invalid overrides fall back to the default.
+func maxTransferBytes() int64 {
+	if v := os.Getenv("REMOTECMD_MAX_TRANSFER_MB"); v != "" {
+		if mb, err := strconv.ParseInt(v, 10, 64); err == nil && mb >= 0 {
+			return mb << 20
+		}
+	}
+	return defaultMaxTransferBytes
+}
+
+// checkTransferSize returns a clear, actionable error when a payload of size
+// bytes would exceed the configured transfer limit, instead of letting the
+// relay silently stall on an oversized frame.
+func checkTransferSize(size int64, what string) error {
+	limit := maxTransferBytes()
+	if limit <= 0 || size <= limit {
+		return nil
+	}
+	return fmt.Errorf(
+		"%s is %d MB, which exceeds the %d MB single-transfer limit — the relay "+
+			"silently drops payloads this large. Split it first "+
+			"(e.g. `split -b 16M`, cp each part, then `cat` on the target), or raise "+
+			"the limit with REMOTECMD_MAX_TRANSFER_MB if your relay allows larger frames",
+		what, size>>20, limit>>20)
+}
 
 func handleCP(args []string) {
 	fs := flag.NewFlagSet("cp", flag.ExitOnError)
@@ -57,6 +95,16 @@ func handleFileTransfer(target, src, dst string, stream bool) error {
 		return fmt.Errorf("stat source: %v", err)
 	}
 
+	// Reject oversized single files up front with a clear error rather than
+	// building the payload and stalling on the relay (issue #1). Directories are
+	// checked after their tar archive is built, since their on-wire size is the
+	// archive size, not the sum of file sizes on disk.
+	if !info.IsDir() {
+		if err := checkTransferSize(info.Size(), "file"); err != nil {
+			return err
+		}
+	}
+
 	var mode string
 	var content string
 
@@ -76,6 +124,9 @@ func handleFileTransfer(target, src, dst string, stream bool) error {
 		tarData, err := createTarArchive(src)
 		if err != nil {
 			return fmt.Errorf("creating tar archive: %v", err)
+		}
+		if err := checkTransferSize(int64(len(tarData)), "directory archive"); err != nil {
+			return err
 		}
 		content = base64.StdEncoding.EncodeToString(tarData)
 		if stream {

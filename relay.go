@@ -23,7 +23,6 @@ func (c *relayClient) send(msg *Message) error {
 	return c.conn.WriteJSON(msg)
 }
 
-
 type pendingRequest struct {
 	serverID   string
 	clientConn *relayClient
@@ -44,13 +43,13 @@ type multiPendingEntry struct {
 }
 
 type RelayServer struct {
-	port         int
-	clients      map[string]*relayClient
-	pending      map[string]*pendingRequest
+	port          int
+	clients       map[string]*relayClient
+	pending       map[string]*pendingRequest
 	pairListeners map[string]*relayClient
 	multiPending  map[string]*multiPendingEntry
 	subToMulti    map[string]*subTargetInfo
-	mu           sync.RWMutex
+	mu            sync.RWMutex
 }
 
 var upgrader = websocket.Upgrader{
@@ -121,6 +120,17 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 			}
 			rs.mu.Lock()
 			if existing, ok := rs.clients[msg.Name]; ok {
+				// A registered name may only be taken over by a connection that
+				// presents the same token. Otherwise any client knowing just the
+				// target NAME could evict the real target and hijack (or deny)
+				// its command routing.
+				if !tokenEqual(existing.token, msg.Token) {
+					rs.mu.Unlock()
+					rc.send(&Message{Type: "error", Error: "name already registered with a different token"})
+					log.Printf("Rejected register for %s: token mismatch", msg.Name)
+					continue
+				}
+				// Legitimate reconnect (matching token): replace the stale conn.
 				existing.send(&Message{Type: "error", Error: "replaced by new connection"})
 				delete(rs.clients, msg.Name)
 			}
@@ -144,7 +154,7 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 				rc.send(errResult(msg.ID, "target not connected: "+msg.Target))
 				continue
 			}
-			if target.token != msg.Token {
+			if !tokenEqual(target.token, msg.Token) {
 				rc.send(errResult(msg.ID, "invalid token for target: "+msg.Target))
 				continue
 			}
@@ -184,7 +194,7 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 				rc.send(errResult(msg.ID, "target not connected: "+msg.Target))
 				continue
 			}
-			if target.token != msg.Token {
+			if !tokenEqual(target.token, msg.Token) {
 				rc.send(errResult(msg.ID, "invalid token for target: "+msg.Target))
 				continue
 			}
@@ -238,36 +248,13 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 			log.Printf("Stream end relayed for id=%s (ok=%v)", msg.ID, msg.OK)
 
 		case "result":
-			rs.mu.Lock()
-
-			// Check multi-target sub-result first
-			if info, isMulti := rs.subToMulti[msg.ID]; isMulti {
-				delete(rs.subToMulti, msg.ID)
-				multiEntry, hasEntry := rs.multiPending[info.multiID]
-				if !hasEntry {
-					rs.mu.Unlock()
-					continue
-				}
-				// Store this result for the target
-				multiEntry.results[info.targetName] = &msg
-				multiEntry.remaining--
-
-				if multiEntry.remaining <= 0 {
-					// All results received — send aggregated response
-					delete(rs.multiPending, info.multiID)
-					rs.mu.Unlock()
-					// Stop the timeout timer
-					if multiEntry.timer != nil {
-						multiEntry.timer.Stop()
-					}
-					rs.sendMultiResult(multiEntry.clientConn, multiEntry.clientID, multiEntry.results, multiEntry.targetOrder)
-				} else {
-					rs.mu.Unlock()
-				}
+			// Multi-target sub-results flow through the shared completion path.
+			if rs.completeSubResult(msg.ID, &msg) {
 				continue
 			}
 
 			// Normal single-target result
+			rs.mu.Lock()
 			pr, ok := rs.pending[msg.ID]
 			if ok {
 				delete(rs.pending, msg.ID)
@@ -313,10 +300,6 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 				remaining:   0,
 			}
 
-			rs.mu.Lock()
-			rs.multiPending[multiID] = entry
-			rs.mu.Unlock()
-
 			log.Printf("Multi-target execute: targets=%v, cmd=%s", msg.Targets, msg.Cmd)
 
 			batchTimeout := msg.Timeout + 5
@@ -324,8 +307,20 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 				batchTimeout = 35
 			}
 
-			pendingCount := 0
-			rs.mu.RLock()
+			// Resolve targets and register the routing table under a single write
+			// lock. subToMulti and entry.results are mutated here, so a read lock
+			// is unsafe: two concurrent execute_multi requests would race on the
+			// subToMulti map. The actual sends are deferred until after the lock
+			// is released so a slow/blocked target can't stall the whole relay.
+			type forwardJob struct {
+				target     *relayClient
+				subID      string
+				targetName string
+			}
+			var jobs []forwardJob
+
+			rs.mu.Lock()
+			rs.multiPending[multiID] = entry
 			for _, targetName := range msg.Targets {
 				tgt, ok := rs.clients[targetName]
 				if !ok {
@@ -338,7 +333,7 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 				token, hasToken := msg.Tokens[targetName]
-				if !hasToken || tgt.token != token {
+				if !hasToken || !tokenEqual(tgt.token, token) {
 					b := false
 					entry.results[targetName] = &Message{
 						Type:  "result",
@@ -353,31 +348,52 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 					multiID:    multiID,
 					targetName: targetName,
 				}
-				pendingCount++
-
-				forward := &Message{
-					Type:    "command",
-					ID:      subID,
-					Cmd:     msg.Cmd,
-					Timeout: msg.Timeout,
-				}
-				if err := tgt.send(forward); err != nil {
-					log.Printf("Forward to %s failed: %v", targetName, err)
-					delete(rs.subToMulti, subID)
-					b := false
-					entry.results[targetName] = &Message{
-						Type:  "result",
-						OK:    &b,
-						Error: "forward failed: " + err.Error(),
-					}
-					continue
-				}
+				jobs = append(jobs, forwardJob{target: tgt, subID: subID, targetName: targetName})
 			}
-			rs.mu.RUnlock()
+			// Set remaining before unlocking so an early result can't observe a
+			// stale zero and complete the batch prematurely.
+			entry.remaining = len(jobs)
+			noJobs := len(jobs) == 0
+			// Arm the timeout while still holding rs.mu, so the write to
+			// entry.timer is ordered (via the lock) before any concurrent read
+			// in completeSubResult — the target's result goroutine has no other
+			// happens-before edge to this assignment. The AfterFunc callback
+			// itself takes rs.mu, so it blocks until this Unlock and cannot fire
+			// against a half-built batch.
+			if !noJobs {
+				entry.timer = time.AfterFunc(time.Duration(batchTimeout)*time.Second, func() {
+					rs.mu.Lock()
+					e, ok := rs.multiPending[multiID]
+					if !ok {
+						rs.mu.Unlock()
+						return
+					}
+					delete(rs.multiPending, multiID)
+					for subID, info := range rs.subToMulti {
+						if info.multiID == multiID {
+							delete(rs.subToMulti, subID)
+						}
+					}
+					rs.mu.Unlock()
 
-			entry.remaining = pendingCount
+					for _, t := range e.targetOrder {
+						if _, done := e.results[t]; !done {
+							b := false
+							e.results[t] = &Message{
+								Type:  "result",
+								OK:    &b,
+								Error: "timed out waiting for result",
+							}
+						}
+					}
+					rs.sendMultiResult(e.clientConn, e.clientID, e.results, e.targetOrder)
+				})
+			}
+			rs.mu.Unlock()
 
-			if pendingCount == 0 {
+			if noJobs {
+				// Every target failed validation (unconnected or bad token);
+				// nothing was dispatched, so respond immediately.
 				rs.mu.Lock()
 				delete(rs.multiPending, multiID)
 				rs.mu.Unlock()
@@ -385,33 +401,27 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
-			entry.timer = time.AfterFunc(time.Duration(batchTimeout)*time.Second, func() {
-				rs.mu.Lock()
-				e, ok := rs.multiPending[multiID]
-				if !ok {
-					rs.mu.Unlock()
-					return
+			// Dispatch commands outside the lock so a slow or blocked target
+			// cannot stall the relay. A forward failure is finalized through the
+			// shared completion path, which also fires the aggregated response if
+			// it was the last outstanding target.
+			for _, job := range jobs {
+				forward := &Message{
+					Type:    "command",
+					ID:      job.subID,
+					Cmd:     msg.Cmd,
+					Timeout: msg.Timeout,
 				}
-				delete(rs.multiPending, multiID)
-				for subID, info := range rs.subToMulti {
-					if info.multiID == multiID {
-						delete(rs.subToMulti, subID)
-					}
+				if err := job.target.send(forward); err != nil {
+					log.Printf("Forward to %s failed: %v", job.targetName, err)
+					b := false
+					rs.completeSubResult(job.subID, &Message{
+						Type:  "result",
+						OK:    &b,
+						Error: "forward failed: " + err.Error(),
+					})
 				}
-				rs.mu.Unlock()
-
-				for _, t := range e.targetOrder {
-					if _, done := e.results[t]; !done {
-						b := false
-						e.results[t] = &Message{
-							Type:  "result",
-							OK:    &b,
-							Error: "timed out waiting for result",
-						}
-					}
-				}
-				rs.sendMultiResult(e.clientConn, e.clientID, e.results, e.targetOrder)
-			})
+			}
 
 		case "pair_listen":
 			if msg.Code == "" {
@@ -454,6 +464,47 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 			rc.send(&Message{Type: "error", Error: "unknown message type: " + msg.Type})
 		}
 	}
+}
+
+// completeSubResult records a single sub-result for a multi-target batch. When
+// the batch has no outstanding targets left it stops the timeout timer and
+// dispatches the aggregated response to the originating client. It is the one
+// completion path shared by real daemon results and forward failures, so the
+// "all results in" decision is made under a single lock and cannot fire twice
+// or observe a stale remaining count. It returns true if subID belonged to a
+// multi-target batch (so callers can distinguish it from a single-target
+// result); unknown or already-completed sub-IDs return false.
+func (rs *RelayServer) completeSubResult(subID string, result *Message) bool {
+	rs.mu.Lock()
+	info, ok := rs.subToMulti[subID]
+	if !ok {
+		rs.mu.Unlock()
+		return false
+	}
+	delete(rs.subToMulti, subID)
+	entry, hasEntry := rs.multiPending[info.multiID]
+	if !hasEntry {
+		rs.mu.Unlock()
+		return true
+	}
+	entry.results[info.targetName] = result
+	entry.remaining--
+	if entry.remaining > 0 {
+		rs.mu.Unlock()
+		return true
+	}
+	delete(rs.multiPending, info.multiID)
+	// Read the timer under the lock; it is written under rs.mu during batch
+	// setup, so grabbing it here (rather than after Unlock) preserves the
+	// happens-before edge and keeps -race and the memory model happy.
+	timer := entry.timer
+	rs.mu.Unlock()
+
+	if timer != nil {
+		timer.Stop()
+	}
+	rs.sendMultiResult(entry.clientConn, entry.clientID, entry.results, entry.targetOrder)
+	return true
 }
 
 func (rs *RelayServer) sendMultiResult(client *relayClient, clientID string, results map[string]*Message, order []string) {

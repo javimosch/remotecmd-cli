@@ -232,6 +232,13 @@ rcc myserver ~/.ssh/config ~/.ssh/config
 rcc myserver /app/dist /app/dist --stream
 ```
 
+> **Size limit:** a file (or directory archive) is sent as a **single** message,
+> so transfers are capped at **100 MB** by default — larger payloads are silently
+> dropped by the relay, so the CLI now refuses them with a clear error up front.
+> To move something bigger, split it (`split -b 16M`, copy each part, `cat` on the
+> target) or raise `REMOTECMD_MAX_TRANSFER_MB` if your self-hosted relay permits
+> larger frames.
+
 ---
 
 ## Pairing Flow
@@ -322,7 +329,7 @@ ALIASES:
   remotecmd-cli alias uninstall     Remove installed aliases
 
 RELAY:
-  remotecmd-cli relay daemon start [--port 3032] [-daemon]
+  remotecmd-cli relay daemon start [--port 3032] [-daemon] [--tls-cert <f>] [--tls-key <f>]
   remotecmd-cli relay daemon stop
   remotecmd-cli relay daemon status
 
@@ -400,6 +407,51 @@ DAEMON:
 
 ---
 
+## Security & authentication
+
+Every target is identified by a **name + token** pair. The token is auto-generated
+when the daemon first starts (or during pairing) and stored in
+`~/.remotecmd/config.json` on both sides — there are no SSH keys to distribute.
+
+How the relay enforces auth on each request:
+
+- **Registration** — a daemon must present a non-empty `name` *and* `token` to
+  register. The relay indexes the live connection by name.
+- **Per-command check** — before forwarding an `execute`, `file_transfer`, or a
+  multi-target sub-command, the relay compares the client-supplied token against
+  the registered target's token using a **constant-time comparison**
+  (`crypto/subtle`), so a wrong token never reveals its length or match position
+  through response timing. A mismatch returns `invalid token for target: <name>`
+  and the command is never forwarded.
+- **Independent multi-target auth** — in a fan-out (`--targets` / `--group`),
+  each target is authenticated on its own. A bad token for one target fails only
+  that target (`invalid token`); the rest still run.
+- **Blind router** — the relay never executes anything itself. It only forwards
+  an authenticated command to the matching target daemon and relays the result.
+- **No inbound ports** — daemons dial *out* to the relay, so targets need no open
+  ports and no firewall changes.
+
+**Encryption in transit.** Plain `ws://` is unencrypted. For untrusted networks,
+either terminate TLS at a reverse proxy and point clients at `wss://…`, or run the
+relay with a certificate directly:
+
+```bash
+remotecmd-cli relay daemon start --port 3032 --tls-cert cert.pem --tls-key key.pem -daemon
+```
+
+> **Token hygiene:** if a target restarts with a new token, re-add it on the
+> client with `add-target --name <n> --token <new>`. Treat tokens like passwords —
+> anyone holding a target's token can run commands on it through the relay.
+
+### Environment variables
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `REMOTECMD_FEEDBACK_RELAY` | Override the endpoint used by `remotecmd-cli feedback`. Set to `off` to disable feedback entirely. | Central feedback relay |
+| `REMOTECMD_MAX_TRANSFER_MB` | Max size (in MB) for a single `cp` payload. Set to `0` to disable the check (e.g. a self-hosted relay with a raised frame limit). | `100` |
+
+---
+
 ## Use Cases
 
 | Scenario | Command |
@@ -447,10 +499,13 @@ DAEMON:
 
 See [docs/vision.md](docs/vision.md) for the full vision and roadmap.
 
+Shipped: script-friendly exit codes, systemd unit generation, persistent client
+connections, and optional relay TLS (`--tls-cert` / `--tls-key`, see
+[Security & authentication](#security--authentication)).
+
 Upcoming priorities:
-- **v1.3**: Script-friendly exit codes, systemd unit generation
-- **v1.4**: Persistent client connections for faster sequential commands
-- **v1.5**: Optional TLS for relay encryption
+- Port forwarding (replace `ssh -L` for ad-hoc tunnels)
+- Team management and audit logging on the hosted relay
 
 ---
 

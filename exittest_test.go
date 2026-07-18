@@ -274,6 +274,9 @@ func TestHandleCPMissingArgs(t *testing.T) {
 }
 
 func TestHandleRelayInstallSystemdNotRoot(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: the not-root guard does not trigger")
+	}
 	// Without root, this should tell the user to use sudo
 	assertExitCode(t, ExitConfigError, func() {
 		handleRelayInstallSystemd()

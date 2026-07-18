@@ -350,17 +350,33 @@ func TestIntegrationRegisterReplacesOld(t *testing.T) {
 	rs, port := startTestRelay(t)
 	defer func() { _ = rs }()
 
-	// First daemon connects
+	// First daemon connects with the target's real token and answers commands.
 	d1 := testDaemon(t, "http://127.0.0.1:"+fmt.Sprintf("%d", port), "testbox", "tok1")
 	defer d1.Close()
+	testDaemonResponder(t, d1, 0, "still-alive")
 
-	// Second daemon connects with same name but different token
-	d2 := testDaemon(t, "http://127.0.0.1:"+fmt.Sprintf("%d", port), "testbox", "tok2")
+	// A second connection re-registers the SAME name with a DIFFERENT token.
+	// This must be rejected as a hijack attempt — the original registration
+	// (tok1) stays authoritative and reachable.
+	u2 := wsURL("http://127.0.0.1:" + fmt.Sprintf("%d", port))
+	d2, _, err := websocket.DefaultDialer.Dial(u2, nil)
+	if err != nil {
+		t.Fatalf("impostor dial: %v", err)
+	}
 	defer d2.Close()
+	d2.WriteJSON(&Message{Type: "register", Name: "testbox", Token: "tok2"})
+	var regResp Message
+	if err := d2.ReadJSON(&regResp); err != nil {
+		t.Fatalf("impostor read register response: %v", err)
+	}
+	if regResp.Type != "error" {
+		t.Errorf("impostor re-register should be rejected with an error, got type %q", regResp.Type)
+	}
 
 	time.Sleep(50 * time.Millisecond)
 
-	// Client tries to execute with old token — should fail
+	// Client executing with the original token still succeeds: the hijack
+	// attempt did not evict the real target.
 	u := wsURL("http://127.0.0.1:" + fmt.Sprintf("%d", port))
 	client, _, err := websocket.DefaultDialer.Dial(u, nil)
 	if err != nil {
@@ -378,8 +394,26 @@ func TestIntegrationRegisterReplacesOld(t *testing.T) {
 
 	var result Message
 	client.ReadJSON(&result)
-	if result.OK != nil && *result.OK {
-		t.Error("expected failure with old token")
+	if result.OK == nil || !*result.OK {
+		errMsg := ""
+		if result.Error != "" {
+			errMsg = ": " + result.Error
+		}
+		t.Errorf("original target should stay reachable after a rejected re-register with a different token%s", errMsg)
+	}
+
+	// The impostor token must NOT be honored for routing.
+	client.WriteJSON(&Message{
+		Type:   "execute",
+		ID:     newID(),
+		Target: "testbox",
+		Token:  "tok2",
+		Cmd:    "echo hi",
+	})
+	var bad Message
+	client.ReadJSON(&bad)
+	if bad.OK != nil && *bad.OK {
+		t.Error("impostor token tok2 should be rejected for target testbox")
 	}
 }
 

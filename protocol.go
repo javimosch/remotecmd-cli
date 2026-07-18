@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"fmt"
 )
 
@@ -27,15 +28,15 @@ type Message struct {
 	Code     string `json:"code,omitempty"`
 	Hostname string `json:"hostname,omitempty"`
 	// File transfer fields
-	SrcPath  string `json:"src_path,omitempty"`
-	DstPath  string `json:"dst_path,omitempty"`
-	Content  string `json:"content,omitempty"`
-	Mode     string `json:"mode,omitempty"`
+	SrcPath string `json:"src_path,omitempty"`
+	DstPath string `json:"dst_path,omitempty"`
+	Content string `json:"content,omitempty"`
+	Mode    string `json:"mode,omitempty"`
 	// Multi-target fields
-	Targets     []string          `json:"targets,omitempty"`
-	Tokens      map[string]string `json:"tokens,omitempty"`
-	Results     map[string]*Message `json:"results,omitempty"`
-	Parallel    int               `json:"parallel,omitempty"`
+	Targets  []string            `json:"targets,omitempty"`
+	Tokens   map[string]string   `json:"tokens,omitempty"`
+	Results  map[string]*Message `json:"results,omitempty"`
+	Parallel int                 `json:"parallel,omitempty"`
 }
 
 func streamEndOK(id string, exitCode int, durationMs int64) *Message {
@@ -86,6 +87,17 @@ func newID() string {
 	b := make([]byte, 16)
 	rand.Read(b)
 	return fmt.Sprintf("%x", b)
+}
+
+// tokenEqual reports whether the presented token matches the expected token.
+// It uses a constant-time comparison so the relay does not leak token length
+// or a per-byte match position through response timing. An empty expected
+// token never matches — targets must register with a non-empty token.
+func tokenEqual(expected, presented string) bool {
+	if expected == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(expected), []byte(presented)) == 1
 }
 
 func wsURL(raw string) string {
