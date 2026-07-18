@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/base64"
 	"strings"
 	"testing"
 	"time"
@@ -164,6 +166,111 @@ func TestIntegrationFileTransferViaRelay(t *testing.T) {
 	}
 	if result.OK == nil || !*result.OK {
 		t.Error("expected OK=true")
+	}
+}
+
+func TestIntegrationChunkedFileTransferViaRelay(t *testing.T) {
+	rs, port := startTestRelay(t)
+	defer func() { _ = rs }()
+
+	daemon := testDaemon(t, "http://127.0.0.1:"+itoa(port), "chunk-box", "ctok")
+	defer daemon.Close()
+
+	// Fake daemon that reassembles chunked transfers and reports the total
+	// number of bytes it received so the test can assert full fidelity.
+	got := make(chan int, 1)
+	go func() {
+		buffers := make(map[string]*bytes.Buffer)
+		for {
+			var msg Message
+			if err := daemon.ReadJSON(&msg); err != nil {
+				return
+			}
+			switch msg.Type {
+			case "file_transfer":
+				if msg.Chunked {
+					buffers[msg.ID] = &bytes.Buffer{}
+				}
+			case "file_chunk":
+				buf, ok := buffers[msg.ID]
+				if !ok {
+					daemon.WriteJSON(&Message{Type: "file_transfer_result", ID: msg.ID, OK: boolPtr(false), Error: "unknown transfer"})
+					continue
+				}
+				dec, err := base64.StdEncoding.DecodeString(msg.Data)
+				if err != nil {
+					daemon.WriteJSON(&Message{Type: "file_transfer_result", ID: msg.ID, OK: boolPtr(false), Error: "decode: " + err.Error()})
+					delete(buffers, msg.ID)
+					continue
+				}
+				buf.Write(dec)
+				if msg.Final {
+					got <- buf.Len()
+					delete(buffers, msg.ID)
+					daemon.WriteJSON(&Message{Type: "file_transfer_result", ID: msg.ID, OK: boolPtr(true)})
+				}
+			}
+		}
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	client := testClient(t, port)
+	defer client.Close()
+
+	// A payload larger than one chunk to force multiple frames through the relay.
+	const size = 3 * fileChunkSize / 2
+	payload := bytes.Repeat([]byte("Q"), size)
+
+	base := &Message{ID: newID(), Target: "chunk-box", Token: "ctok", Mode: "scp", SrcPath: "/big", DstPath: "/dst/big"}
+	if err := sendFileFrames(client, base, payload, false); err != nil {
+		t.Fatalf("sendFileFrames: %v", err)
+	}
+
+	select {
+	case n := <-got:
+		if n != size {
+			t.Errorf("daemon received %d bytes, want %d", n, size)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for reassembled payload")
+	}
+
+	var result Message
+	if err := client.ReadJSON(&result); err != nil {
+		t.Fatalf("read result: %v", err)
+	}
+	if result.Type != "result" {
+		t.Errorf("expected result type, got %s", result.Type)
+	}
+	if result.ID != base.ID {
+		t.Errorf("result id = %s, want %s", result.ID, base.ID)
+	}
+	if result.OK == nil || !*result.OK {
+		t.Error("expected OK=true")
+	}
+}
+
+func TestIntegrationChunkedFileTransferUnknownTarget(t *testing.T) {
+	rs, port := startTestRelay(t)
+	defer func() { _ = rs }()
+
+	client := testClient(t, port)
+	defer client.Close()
+
+	// No daemon registered under this name: the relay should reject the init
+	// frame with a failure result rather than leaving the client hanging.
+	base := &Message{ID: newID(), Target: "missing-box", Token: "x", Mode: "scp", SrcPath: "/a", DstPath: "/b"}
+	if err := sendFileFrames(client, base, []byte("hello"), false); err != nil {
+		t.Fatalf("sendFileFrames: %v", err)
+	}
+
+	var result Message
+	if err := client.ReadJSON(&result); err != nil {
+		t.Fatalf("read result: %v", err)
+	}
+	if result.OK != nil && *result.OK {
+		t.Error("expected failure for unknown target")
 	}
 }
 

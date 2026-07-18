@@ -104,6 +104,9 @@ func TestListTargetsWithGroups(t *testing.T) {
 }
 
 func TestSaveTokenError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: filesystem permission checks are bypassed")
+	}
 	_, cleanup := setupTestConfig(t)
 	defer cleanup()
 

@@ -11,10 +11,11 @@ import (
 )
 
 type relayClient struct {
-	conn  *websocket.Conn
-	name  string
-	token string
-	mu    sync.Mutex
+	conn      *websocket.Conn
+	name      string
+	token     string
+	mu        sync.Mutex
+	chunkRoutes map[string]*chunkRoute // client transfer ID -> forwarding route
 }
 
 func (c *relayClient) send(msg *Message) error {
@@ -27,6 +28,15 @@ func (c *relayClient) send(msg *Message) error {
 type pendingRequest struct {
 	serverID   string
 	clientConn *relayClient
+}
+
+// chunkRoute records where the chunks of an in-flight chunked file transfer
+// should be forwarded. It is keyed by the sending client's transfer ID and
+// lives on that client's connection, so it is only touched by that
+// connection's read loop and needs no extra locking.
+type chunkRoute struct {
+	target *relayClient
+	reqID  string
 }
 
 type subTargetInfo struct {
@@ -94,7 +104,11 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	rc := &relayClient{conn: conn}
+	// Reject frames larger than the negotiated limit instead of buffering
+	// unbounded data — clients chunk large file transfers to stay under it.
+	conn.SetReadLimit(relayMaxFrameSize)
+
+	rc := &relayClient{conn: conn, chunkRoutes: make(map[string]*chunkRoute)}
 	registered := false
 
 	defer func() {
@@ -200,17 +214,49 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 			rs.mu.Unlock()
 
 			forward := &Message{
-				Type:    "file_transfer",
-				ID:      reqID,
-				Mode:    msg.Mode,
-				SrcPath: msg.SrcPath,
-				DstPath: msg.DstPath,
-				Content: msg.Content,
+				Type:        "file_transfer",
+				ID:          reqID,
+				Mode:        msg.Mode,
+				SrcPath:     msg.SrcPath,
+				DstPath:     msg.DstPath,
+				Content:     msg.Content,
+				Chunked:     msg.Chunked,
+				TotalChunks: msg.TotalChunks,
+				TotalSize:   msg.TotalSize,
 			}
 			if err := target.send(forward); err != nil {
 				log.Printf("Forward to %s failed: %v", msg.Target, err)
 				rs.cleanupPending(reqID)
 				rc.send(errResult(msg.ID, "failed to forward file transfer: "+err.Error()))
+				continue
+			}
+			// For chunked transfers, remember where the follow-up chunks go.
+			if msg.Chunked {
+				rc.chunkRoutes[msg.ID] = &chunkRoute{target: target, reqID: reqID}
+			}
+
+		case "file_chunk":
+			route, ok := rc.chunkRoutes[msg.ID]
+			if !ok {
+				log.Printf("Dropping file_chunk for unknown transfer id=%s", msg.ID)
+				continue
+			}
+			forward := &Message{
+				Type:  "file_chunk",
+				ID:    route.reqID,
+				Seq:   msg.Seq,
+				Data:  msg.Data,
+				Final: msg.Final,
+			}
+			if err := route.target.send(forward); err != nil {
+				log.Printf("Forward chunk to %s failed: %v", route.target.name, err)
+				delete(rc.chunkRoutes, msg.ID)
+				rs.cleanupPending(route.reqID)
+				rc.send(errResult(msg.ID, "failed to forward file chunk: "+err.Error()))
+				continue
+			}
+			if msg.Final {
+				delete(rc.chunkRoutes, msg.ID)
 			}
 
 		case "stream_chunk":

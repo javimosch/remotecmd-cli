@@ -3,12 +3,17 @@ package main
 import (
 	"archive/tar"
 	"bytes"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+var errTestWrite = errors.New("simulated write failure")
 
 func TestMapType(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "remotecmd-maptype-*")
@@ -297,6 +302,184 @@ func TestCreateAndExtractRoundTrip(t *testing.T) {
 	checkFile("hello.txt", "world")
 	checkFile("nested/a.txt", "nested-a")
 	checkFile("nested/deep/b.txt", "deep-b")
+}
+
+func TestChunkCount(t *testing.T) {
+	cases := []struct {
+		size, chunk, want int
+	}{
+		{0, 4, 1},   // empty payload still yields one terminating chunk
+		{1, 4, 1},
+		{4, 4, 1},
+		{5, 4, 2},
+		{8, 4, 2},
+		{9, 4, 3},
+	}
+	for _, c := range cases {
+		if got := chunkCount(c.size, c.chunk); got != c.want {
+			t.Errorf("chunkCount(%d,%d) = %d, want %d", c.size, c.chunk, got, c.want)
+		}
+	}
+}
+
+func TestChunkData(t *testing.T) {
+	// Empty input -> a single empty chunk (guarantees a final frame).
+	empty := chunkData(nil, 4)
+	if len(empty) != 1 || len(empty[0]) != 0 {
+		t.Fatalf("chunkData(nil) = %v, want one empty chunk", empty)
+	}
+
+	data := []byte("0123456789") // 10 bytes
+	chunks := chunkData(data, 4)
+	if len(chunks) != 3 {
+		t.Fatalf("expected 3 chunks, got %d", len(chunks))
+	}
+
+	// Reassembling the chunks must reproduce the original bytes exactly.
+	var reassembled []byte
+	for i, ch := range chunks {
+		if len(ch) > 4 {
+			t.Errorf("chunk %d exceeds chunk size: %d bytes", i, len(ch))
+		}
+		reassembled = append(reassembled, ch...)
+	}
+	if !bytes.Equal(reassembled, data) {
+		t.Errorf("reassembled = %q, want %q", reassembled, data)
+	}
+}
+
+func TestMarshalWithinLimit(t *testing.T) {
+	msg := &Message{Type: "file_chunk", ID: "abc", Data: strings.Repeat("x", 100)}
+
+	// Comfortably under the limit: succeeds.
+	if _, err := marshalWithinLimit(msg, 10000); err != nil {
+		t.Errorf("unexpected error under limit: %v", err)
+	}
+
+	// Frame exceeds the limit: clear, actionable error instead of a stall.
+	_, err := marshalWithinLimit(msg, 10)
+	if err == nil {
+		t.Fatal("expected error when frame exceeds limit")
+	}
+	if !strings.Contains(err.Error(), "exceeds relay frame limit") {
+		t.Errorf("error = %q, want it to mention the relay frame limit", err.Error())
+	}
+
+	// A zero/negative limit disables the check.
+	if _, err := marshalWithinLimit(msg, 0); err != nil {
+		t.Errorf("limit 0 should disable the check, got %v", err)
+	}
+}
+
+// captureWriter records the frames written by sendFileFrames so the transport
+// can be exercised without a live WebSocket connection.
+type captureWriter struct {
+	frames [][]byte
+	err    error
+}
+
+func (c *captureWriter) WriteMessage(_ int, data []byte) error {
+	if c.err != nil {
+		return c.err
+	}
+	cp := make([]byte, len(data))
+	copy(cp, data)
+	c.frames = append(c.frames, cp)
+	return nil
+}
+
+func TestSendFileFramesChunking(t *testing.T) {
+	// 10 KiB of data with a tiny chunk size forces multiple frames.
+	data := bytes.Repeat([]byte("A"), 10*1024)
+	const smallChunk = 4096
+
+	w := &captureWriter{}
+	base := &Message{ID: "id1", Target: "box", Token: "tok", Mode: "scp", SrcPath: "/s", DstPath: "/d"}
+	if err := sendFileFramesWithSize(w, base, data, false, smallChunk); err != nil {
+		t.Fatalf("sendFileFrames: %v", err)
+	}
+
+	// Expect: 1 init frame + ceil(10240/4096)=3 chunk frames.
+	if len(w.frames) != 4 {
+		t.Fatalf("expected 4 frames, got %d", len(w.frames))
+	}
+
+	var init Message
+	if err := json.Unmarshal(w.frames[0], &init); err != nil {
+		t.Fatalf("init unmarshal: %v", err)
+	}
+	if init.Type != "file_transfer" || !init.Chunked || init.TotalChunks != 3 || init.TotalSize != int64(len(data)) {
+		t.Errorf("init frame = %+v", init)
+	}
+	if init.Content != "" {
+		t.Error("init frame should not carry inline content")
+	}
+
+	// Reassemble the chunk frames and verify byte-for-byte fidelity + ordering.
+	var got []byte
+	for i := 1; i < len(w.frames); i++ {
+		var m Message
+		if err := json.Unmarshal(w.frames[i], &m); err != nil {
+			t.Fatalf("chunk unmarshal: %v", err)
+		}
+		if m.Type != "file_chunk" || m.ID != "id1" {
+			t.Errorf("chunk %d = %+v", i, m)
+		}
+		if m.Seq != i-1 {
+			t.Errorf("chunk %d seq = %d, want %d", i, m.Seq, i-1)
+		}
+		last := i == len(w.frames)-1
+		if m.Final != last {
+			t.Errorf("chunk %d final = %v, want %v", i, m.Final, last)
+		}
+		dec, err := base64.StdEncoding.DecodeString(m.Data)
+		if err != nil {
+			t.Fatalf("chunk %d decode: %v", i, err)
+		}
+		got = append(got, dec...)
+	}
+	if !bytes.Equal(got, data) {
+		t.Errorf("reassembled payload differs from original (%d vs %d bytes)", len(got), len(data))
+	}
+}
+
+func TestSendFileFramesWriteError(t *testing.T) {
+	w := &captureWriter{err: errTestWrite}
+	base := &Message{ID: "id1", Mode: "scp"}
+	if err := sendFileFrames(w, base, []byte("hi"), false); err == nil {
+		t.Fatal("expected error when the underlying write fails")
+	}
+}
+
+func TestWriteTransferScp(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "remotecmd-wt-*")
+	if err != nil {
+		t.Fatalf("temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	dst := filepath.Join(tmpDir, "out.bin")
+	r := &fileReassembly{mode: "scp", dst: dst}
+	payload := bytes.Repeat([]byte("Z"), 5000)
+	r.buf.Write(payload)
+
+	if err := writeTransfer(r); err != nil {
+		t.Fatalf("writeTransfer: %v", err)
+	}
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Errorf("written file differs from payload")
+	}
+}
+
+func TestWriteTransferUnknownMode(t *testing.T) {
+	r := &fileReassembly{mode: "bogus"}
+	if err := writeTransfer(r); err == nil {
+		t.Error("expected error for unknown mode")
+	}
 }
 
 func TestBoolPtr(t *testing.T) {
