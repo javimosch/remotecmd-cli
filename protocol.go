@@ -31,6 +31,12 @@ type Message struct {
 	DstPath  string `json:"dst_path,omitempty"`
 	Content  string `json:"content,omitempty"`
 	Mode     string `json:"mode,omitempty"`
+	// Chunked file transfer fields (large files streamed as multiple frames)
+	Chunked     bool  `json:"chunked,omitempty"`
+	Seq         int   `json:"seq,omitempty"`
+	TotalChunks int   `json:"total_chunks,omitempty"`
+	TotalSize   int64 `json:"total_size,omitempty"`
+	Final       bool  `json:"final,omitempty"`
 	// Multi-target fields
 	Targets     []string          `json:"targets,omitempty"`
 	Tokens      map[string]string `json:"tokens,omitempty"`

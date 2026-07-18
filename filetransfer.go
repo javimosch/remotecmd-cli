@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -12,6 +13,18 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+)
+
+const (
+	// fileChunkSize is the raw (pre-base64) size of each file transfer chunk.
+	// 4 MiB of raw data encodes to ~5.6 MiB of base64, which stays comfortably
+	// below relayMaxFrameSize once wrapped in the JSON envelope.
+	fileChunkSize = 4 << 20 // 4 MiB
+
+	// relayMaxFrameSize is the maximum WebSocket frame the relay will accept.
+	// Frames larger than this are rejected by the relay, so the client caps
+	// each chunk well below the limit and surfaces a clear error otherwise.
+	relayMaxFrameSize = 12 << 20 // 12 MiB
 )
 
 func handleCP(args []string) {
@@ -58,7 +71,7 @@ func handleFileTransfer(target, src, dst string, stream bool) error {
 	}
 
 	var mode string
-	var content string
+	var data []byte
 
 	if stream {
 		// Emit start event
@@ -77,7 +90,7 @@ func handleFileTransfer(target, src, dst string, stream bool) error {
 		if err != nil {
 			return fmt.Errorf("creating tar archive: %v", err)
 		}
-		content = base64.StdEncoding.EncodeToString(tarData)
+		data = tarData
 		if stream {
 			emitProgress("archived", map[string]interface{}{
 				"size": len(tarData),
@@ -86,11 +99,11 @@ func handleFileTransfer(target, src, dst string, stream bool) error {
 	} else {
 		// Single file: use scp mode
 		mode = "scp"
-		data, err := ioutil.ReadFile(src)
+		fileData, err := ioutil.ReadFile(src)
 		if err != nil {
 			return fmt.Errorf("reading source file: %v", err)
 		}
-		content = base64.StdEncoding.EncodeToString(data)
+		data = fileData
 		if stream {
 			emitProgress("read", map[string]interface{}{
 				"size": len(data),
@@ -112,24 +125,31 @@ func handleFileTransfer(target, src, dst string, stream bool) error {
 	}
 
 	id := newID()
-	msg := &Message{
-		Type:    "file_transfer",
+	base := &Message{
 		ID:      id,
 		Target:  relayTarget,
 		Token:   tgt.Token,
 		Mode:    mode, // May have been changed from rsync to scp for single files
 		SrcPath: src,
 		DstPath: dst,
-		Content: content,
 	}
 
-	if err := conn.WriteJSON(msg); err != nil {
-		return fmt.Errorf("sending file_transfer request: %v", err)
+	// Stream the payload as bounded chunks so large files never exceed the
+	// relay's max frame size (the whole file used to be sent as one frame,
+	// which stalled silently past the limit).
+	if err := sendFileFrames(conn, base, data, stream); err != nil {
+		if stream {
+			emitProgress("error", map[string]interface{}{
+				"message": err.Error(),
+			})
+		}
+		return err
 	}
 
 	if stream {
 		emitProgress("sent", map[string]interface{}{
-			"encoded_size": len(content),
+			"total_bytes": len(data),
+			"chunks":      chunkCount(len(data), fileChunkSize),
 		})
 	}
 
@@ -234,4 +254,116 @@ func createTarArchive(srcPath string) ([]byte, error) {
 	}
 
 	return buf.Bytes(), nil
+}
+
+// chunkCount returns the number of chunks a payload of size bytes is split
+// into for a given chunk size. An empty payload still yields one (empty)
+// chunk so the receiver always sees a terminating "final" frame.
+func chunkCount(size, chunkSize int) int {
+	if size <= 0 {
+		return 1
+	}
+	return (size + chunkSize - 1) / chunkSize
+}
+
+// chunkData splits data into slices of at most chunkSize bytes. An empty
+// input yields a single empty chunk so that a terminating frame is always
+// emitted (see chunkCount).
+func chunkData(data []byte, chunkSize int) [][]byte {
+	if len(data) == 0 {
+		return [][]byte{{}}
+	}
+	var chunks [][]byte
+	for i := 0; i < len(data); i += chunkSize {
+		end := i + chunkSize
+		if end > len(data) {
+			end = len(data)
+		}
+		chunks = append(chunks, data[i:end])
+	}
+	return chunks
+}
+
+// marshalWithinLimit marshals msg to JSON and fails with a clear error if the
+// resulting frame would exceed the relay's frame limit. This turns the old
+// silent stall on oversized payloads into an actionable error.
+func marshalWithinLimit(msg *Message, limit int) ([]byte, error) {
+	b, err := json.Marshal(msg)
+	if err != nil {
+		return nil, err
+	}
+	if limit > 0 && len(b) > limit {
+		return nil, fmt.Errorf("message frame of %d bytes exceeds relay frame limit of %d bytes (reduce chunk size)", len(b), limit)
+	}
+	return b, nil
+}
+
+// frameWriter is the subset of *websocket.Conn used to send frames, so the
+// transport can be exercised in tests without a live connection.
+type frameWriter interface {
+	WriteMessage(messageType int, data []byte) error
+}
+
+// sendFileFrames streams data to the relay as an initial "file_transfer"
+// announcement followed by one or more "file_chunk" frames. Every frame is
+// kept under relayMaxFrameSize; if a single frame would exceed it, a clear
+// error is returned instead of silently stalling.
+func sendFileFrames(conn frameWriter, base *Message, data []byte, stream bool) error {
+	return sendFileFramesWithSize(conn, base, data, stream, fileChunkSize)
+}
+
+// sendFileFramesWithSize is sendFileFrames with an explicit chunk size, used
+// so tests can force multiple chunks from small payloads.
+func sendFileFramesWithSize(conn frameWriter, base *Message, data []byte, stream bool, chunkSize int) error {
+	chunks := chunkData(data, chunkSize)
+	total := len(chunks)
+
+	init := &Message{
+		Type:        "file_transfer",
+		ID:          base.ID,
+		Target:      base.Target,
+		Token:       base.Token,
+		Mode:        base.Mode,
+		SrcPath:     base.SrcPath,
+		DstPath:     base.DstPath,
+		Chunked:     true,
+		TotalChunks: total,
+		TotalSize:   int64(len(data)),
+	}
+	frame, err := marshalWithinLimit(init, relayMaxFrameSize)
+	if err != nil {
+		return err
+	}
+	if err := conn.WriteMessage(websocket.TextMessage, frame); err != nil {
+		return fmt.Errorf("sending file_transfer init: %v", err)
+	}
+
+	sent := 0
+	for i, chunk := range chunks {
+		msg := &Message{
+			Type:  "file_chunk",
+			ID:    base.ID,
+			Seq:   i,
+			Data:  base64.StdEncoding.EncodeToString(chunk),
+			Final: i == total-1,
+		}
+		frame, err := marshalWithinLimit(msg, relayMaxFrameSize)
+		if err != nil {
+			return err
+		}
+		if err := conn.WriteMessage(websocket.TextMessage, frame); err != nil {
+			return fmt.Errorf("sending file chunk %d/%d: %v", i+1, total, err)
+		}
+		sent += len(chunk)
+		if stream {
+			emitProgress("chunk", map[string]interface{}{
+				"seq":         i,
+				"chunks":      total,
+				"chunk_bytes": len(chunk),
+				"sent_bytes":  sent,
+				"total_bytes": len(data),
+			})
+		}
+	}
+	return nil
 }

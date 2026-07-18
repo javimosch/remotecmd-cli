@@ -27,6 +27,18 @@ type TargetDaemon struct {
 	token     string
 	conn      *websocket.Conn
 	writeMu   sync.Mutex
+
+	reMu       sync.Mutex
+	reassembly map[string]*fileReassembly
+}
+
+// fileReassembly accumulates the chunks of an in-flight chunked file transfer
+// until the final frame arrives, at which point the payload is written out.
+type fileReassembly struct {
+	mode string
+	src  string
+	dst  string
+	buf  bytes.Buffer
 }
 
 func runDaemon(token string) {
@@ -73,6 +85,7 @@ func (td *TargetDaemon) run() {
 		return
 	}
 	defer conn.Close()
+	conn.SetReadLimit(relayMaxFrameSize)
 	td.conn = conn
 
 	// Stop channel for the pair retry goroutine; closed when run() returns
@@ -106,8 +119,18 @@ func (td *TargetDaemon) run() {
 			go td.executeCommand(&msg)
 
 		case "file_transfer":
-			log.Printf("Received file transfer (id=%s, mode=%s): %s -> %s", msg.ID, msg.Mode, msg.SrcPath, msg.DstPath)
-			go td.handleFileTransfer(&msg)
+			log.Printf("Received file transfer (id=%s, mode=%s, chunked=%v): %s -> %s", msg.ID, msg.Mode, msg.Chunked, msg.SrcPath, msg.DstPath)
+			if msg.Chunked {
+				// Register reassembly state synchronously so the chunks that
+				// follow on this connection always find it.
+				td.beginChunkedTransfer(&msg)
+			} else {
+				go td.handleFileTransfer(&msg)
+			}
+
+		case "file_chunk":
+			// Handled synchronously to preserve chunk ordering.
+			td.handleFileChunk(&msg)
 
 		case "pair_confirmed":
 			log.Printf("Pair confirmed (code=%s)", msg.Code)
@@ -299,6 +322,81 @@ func (td *TargetDaemon) handleFileTransfer(msg *Message) {
 	default:
 		td.send(&Message{Type: "file_transfer_result", ID: msg.ID, OK: boolPtr(false), Error: "unknown file transfer mode: " + msg.Mode})
 		return
+	}
+}
+
+// beginChunkedTransfer registers reassembly state for an incoming chunked
+// file transfer. The actual bytes arrive as subsequent "file_chunk" frames.
+func (td *TargetDaemon) beginChunkedTransfer(msg *Message) {
+	td.reMu.Lock()
+	defer td.reMu.Unlock()
+	if td.reassembly == nil {
+		td.reassembly = make(map[string]*fileReassembly)
+	}
+	td.reassembly[msg.ID] = &fileReassembly{
+		mode: msg.Mode,
+		src:  msg.SrcPath,
+		dst:  msg.DstPath,
+	}
+}
+
+// handleFileChunk appends a chunk to its transfer's buffer and, on the final
+// chunk, writes the reassembled payload to disk.
+func (td *TargetDaemon) handleFileChunk(msg *Message) {
+	td.reMu.Lock()
+	r, ok := td.reassembly[msg.ID]
+	td.reMu.Unlock()
+	if !ok {
+		td.send(&Message{Type: "file_transfer_result", ID: msg.ID, OK: boolPtr(false), Error: "received chunk for unknown transfer"})
+		return
+	}
+
+	data, err := base64.StdEncoding.DecodeString(msg.Data)
+	if err != nil {
+		td.dropReassembly(msg.ID)
+		td.send(&Message{Type: "file_transfer_result", ID: msg.ID, OK: boolPtr(false), Error: "failed to decode chunk: " + err.Error()})
+		return
+	}
+	r.buf.Write(data)
+
+	if !msg.Final {
+		return
+	}
+
+	td.dropReassembly(msg.ID)
+	if err := writeTransfer(r); err != nil {
+		td.send(&Message{Type: "file_transfer_result", ID: msg.ID, OK: boolPtr(false), Error: err.Error()})
+		return
+	}
+	log.Printf("Chunked file transfer succeeded (id=%s): %s -> %s (%d bytes)", msg.ID, r.src, r.dst, r.buf.Len())
+	td.send(&Message{Type: "file_transfer_result", ID: msg.ID, OK: boolPtr(true)})
+}
+
+func (td *TargetDaemon) dropReassembly(id string) {
+	td.reMu.Lock()
+	delete(td.reassembly, id)
+	td.reMu.Unlock()
+}
+
+// writeTransfer persists a fully reassembled transfer to disk, honoring the
+// same scp (single file) and rsync (tar archive) modes as the buffered path.
+func writeTransfer(r *fileReassembly) error {
+	switch r.mode {
+	case "scp":
+		if err := os.WriteFile(r.dst, r.buf.Bytes(), 0644); err != nil {
+			return fmt.Errorf("failed to write file: %v", err)
+		}
+		return nil
+	case "rsync":
+		if err := os.MkdirAll(r.dst, 0755); err != nil {
+			return fmt.Errorf("failed to create destination directory: %v", err)
+		}
+		if err := extractTarArchive(r.buf.Bytes(), r.dst); err != nil {
+			return fmt.Errorf("failed to extract tar archive: %v", err)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown file transfer mode: %s", r.mode)
 	}
 }
 
