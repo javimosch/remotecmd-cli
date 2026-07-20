@@ -13,6 +13,24 @@ import (
 	"testing"
 )
 
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	os.Stdout = w
+	fn()
+	w.Close()
+	os.Stdout = old
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("read stdout: %v", err)
+	}
+	return string(out)
+}
+
 var errTestWrite = errors.New("simulated write failure")
 
 func TestMapType(t *testing.T) {
@@ -448,6 +466,62 @@ func TestSendFileFramesWriteError(t *testing.T) {
 	base := &Message{ID: "id1", Mode: "scp"}
 	if err := sendFileFrames(w, base, []byte("hi"), false); err == nil {
 		t.Fatal("expected error when the underlying write fails")
+	}
+}
+
+func TestSendFileFramesStreamProgress(t *testing.T) {
+	// --stream mode must emit one progress event per chunk so large transfers
+	// remain observable instead of stalling silently (issue #1).
+	const smallChunk = 4096
+	data := bytes.Repeat([]byte("B"), 9000)
+	wantChunks := chunkCount(len(data), smallChunk)
+
+	output := captureStdout(t, func() {
+		w := &captureWriter{}
+		base := &Message{ID: "id2", Target: "box", Token: "tok", Mode: "scp", SrcPath: "/s", DstPath: "/d"}
+		if err := sendFileFramesWithSize(w, base, data, true, smallChunk); err != nil {
+			t.Fatalf("sendFileFrames: %v", err)
+		}
+	})
+
+	chunkEvents := 0
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		if line == "" {
+			continue
+		}
+		var parsed map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &parsed); err != nil {
+			t.Fatalf("invalid progress JSON %q: %v", line, err)
+		}
+		if parsed["event"] != "chunk" {
+			continue
+		}
+		chunkEvents++
+		dataObj, ok := parsed["data"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("chunk event missing data object: %v", parsed)
+		}
+		if dataObj["total_bytes"] != float64(len(data)) {
+			t.Errorf("chunk total_bytes = %v, want %d", dataObj["total_bytes"], len(data))
+		}
+	}
+	if chunkEvents != wantChunks {
+		t.Errorf("got %d chunk progress events, want %d", chunkEvents, wantChunks)
+	}
+}
+
+func TestSendFileFramesExceedsFrameLimit(t *testing.T) {
+	// A chunk that cannot fit in the relay frame limit must fail fast with a
+	// clear error instead of hanging at the relay (issue #1).
+	huge := strings.Repeat("x", relayMaxFrameSize)
+	w := &captureWriter{}
+	base := &Message{ID: "id3", Mode: "scp"}
+	err := sendFileFramesWithSize(w, base, []byte(huge), false, len(huge))
+	if err == nil {
+		t.Fatal("expected error when a single chunk exceeds relay frame limit")
+	}
+	if !strings.Contains(err.Error(), "exceeds relay frame limit") {
+		t.Errorf("error = %q, want mention of relay frame limit", err.Error())
 	}
 }
 
