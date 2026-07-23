@@ -72,6 +72,7 @@ MCP SERVER (AI agent integration):
 
 OTHER:
   remotecmd-cli version    Show version
+  remotecmd-cli update     Self-update to latest release [--check] [--force]
   remotecmd-cli help       Show this help`)
 }
 

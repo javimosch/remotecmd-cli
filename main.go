@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-const Version = "1.5.0"
+const Version = "1.6.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -17,8 +17,15 @@ func main() {
 	first := os.Args[1]
 
 	if strings.HasPrefix(first, "--") {
+		maybeNudge()
 		handleExecFlags(os.Args[1:])
 		return
+	}
+
+	// Nudge on server-hitting commands (not on local-only ones)
+	switch first {
+	case "exec", "cp", "list-targets", "tunnel", "client":
+		maybeNudge()
 	}
 
 	switch first {
@@ -50,6 +57,8 @@ func main() {
 		handleFeedback(os.Args[2:])
 	case "mcp":
 		handleMCP(os.Args[2:])
+	case "update":
+		handleUpdate(os.Args[2:])
 	case "version":
 		fmt.Println("remotecmd-cli version", Version)
 	case "help", "--help", "-h":
