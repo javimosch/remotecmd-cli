@@ -4,7 +4,7 @@
 # If no targets specified, tests all configured targets.
 # Examples:
 #   bash smoke.sh                    # all targets
-#   bash smoke.sh dk1 rbm21         # specific targets
+#   bash smoke.sh prod staging       # specific targets
 
 set -uo pipefail
 

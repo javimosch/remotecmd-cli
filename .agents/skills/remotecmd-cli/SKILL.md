@@ -47,8 +47,8 @@ remotecmd-cli list-targets --no-health                  # legacy config-only vie
 ```
 TARGET                 STATUS  SEEN              HOSTNAME
 ----------------------------------------------------------------------
-dk1 → vpspoly1         up      3min ago          vpspoly1
-rbm20                  down    checked 1h ago    target not connected
+prod                   up      3min ago          prod-server-01
+staging                down    checked 1h ago    target not connected
 ```
 
 ### Target daemon management (on remote machine)
@@ -187,7 +187,7 @@ EOF
 systemctl daemon-reload && systemctl enable remotecmd-daemon && systemctl start remotecmd-daemon
 ```
 
-### Relay hub persistence (dk1)
+### Relay hub persistence
 Same pattern but system-level (relay needs root for port binding):
 ```bash
 remotecmd-cli relay daemon systemd install   # run as root

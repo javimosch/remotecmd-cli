@@ -56,7 +56,7 @@ func handleListTargets(args []string) {
 
 func handleSetRelay(args []string) {
 	fs := flag.NewFlagSet("set-relay", flag.ExitOnError)
-	url := fs.String("url", "", "relay URL (e.g. http://dk1:3032)")
+	url := fs.String("url", "", "relay URL (e.g. http://relay.example.com:3032)")
 	name := fs.String("name", "", "this node's name on the relay")
 	fs.Parse(args)
 

@@ -14,7 +14,7 @@ func TestHealthCacheLoadSaveRoundTrip(t *testing.T) {
 	defer cleanup()
 
 	c := &HealthCache{Targets: map[string]TargetHealth{
-		"dk1": {Status: "up", Hostname: "dk1", LastSeen: time.Now(), LastCheck: time.Now()},
+		"prod": {Status: "up", Hostname: "prod", LastSeen: time.Now(), LastCheck: time.Now()},
 	}}
 	if err := saveHealthCache(c); err != nil {
 		t.Fatalf("save: %v", err)
@@ -24,11 +24,11 @@ func TestHealthCacheLoadSaveRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if loaded.Targets["dk1"].Status != "up" {
-		t.Errorf("expected up, got %q", loaded.Targets["dk1"].Status)
+	if loaded.Targets["prod"].Status != "up" {
+		t.Errorf("expected up, got %q", loaded.Targets["prod"].Status)
 	}
-	if loaded.Targets["dk1"].Hostname != "dk1" {
-		t.Errorf("expected hostname dk1, got %q", loaded.Targets["dk1"].Hostname)
+	if loaded.Targets["prod"].Hostname != "prod" {
+		t.Errorf("expected hostname prod, got %q", loaded.Targets["prod"].Hostname)
 	}
 }
 

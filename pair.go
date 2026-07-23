@@ -102,7 +102,7 @@ func handlePairListen(args []string) {
 
 		if *name != "" && *name != remoteHostname {
 			// User specified an alias — save only the alias entry with RelayName
-			// (no raw hostname entry to avoid duplicates like "dk1" + "vpspoly1")
+			// (no raw hostname entry to avoid duplicates like "prod" + "prod-server-01")
 			if err := addTargetWithRelayName(*name, msg.Token, remoteHostname); err != nil {
 				fmt.Fprintf(os.Stderr, "Error saving target: %v\n", err)
 				osExit(ExitConfigError)
