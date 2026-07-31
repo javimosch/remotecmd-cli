@@ -17,8 +17,10 @@ FILE TRANSFER:
   remotecmd-cli cp --target <name> --src <path> --dst <path>  Copy file or directory to remote target
 
 TUNNEL (port forwarding):
-  remotecmd-cli tunnel --target <name> --local <port> --remote <host:port>
-                                                     Forward local port to remote address via relay (replaces ssh -L)
+  remotecmd-cli tunnel --target <name> --local <port> --remote <host:port> [-daemon]  Start a tunnel
+  remotecmd-cli tunnel start --target <name> --local <port> --remote <host:port>      Start a tunnel
+  remotecmd-cli tunnel stop  --target <name> --local <port>                            Stop a background tunnel
+  remotecmd-cli tunnel status                                                          List running background tunnels
 
 TARGET CONFIGURATION:
   remotecmd-cli add-target --name <n> --token <t>    Add a known target
