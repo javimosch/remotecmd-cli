@@ -149,7 +149,7 @@ func (td *TargetDaemon) run() {
 		case "disconnect":
 			log.Printf("Received disconnect from relay — exiting cleanly")
 			td.send(&Message{Type: "disconnect_ack"})
-			return
+			os.Exit(0)
 
 		case "error":
 			// Suppress pair-related errors — daemon retries automatically
