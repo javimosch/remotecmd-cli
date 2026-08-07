@@ -67,6 +67,29 @@ remotecmd-cli relay daemon status                          # check relay hub sta
 remotecmd-cli relay daemon systemd install|remove          # install/remove systemd service
 ```
 
+### Pairing & sidecar (v1.7.0+)
+```
+# Listen for a peer to connect (generates single-use pair code, 5min TTL)
+remotecmd-cli pair listen --name <target-name> [--require-activation-key] [--timeout <s>]
+
+# Trigger sidecar endpoint in a Docker container to pair remotecmd
+remotecmd-cli sidecar activate \
+  --url https://app.example.com \
+  --relay http://relay:3032 \
+  --code <pair-code> \
+  --activation-key <key> \
+  --name <target-name> \
+  [--timeout <s>]
+
+# Disconnect a target (kill switch — daemon exits with os.Exit(0), no reconnect)
+remotecmd-cli pair disconnect --target <name>
+
+# Activation key management (on relay host)
+remotecmd-cli relay add-key <key>
+remotecmd-cli relay remove-key <key>
+remotecmd-cli relay list-keys
+```
+
 ### Configuration
 ```
 remotecmd-cli set-relay --url <url> --name <n>          # configure relay connection
@@ -114,6 +137,8 @@ HTTP endpoints on the relay:
 - `GET /guide` — full operator reference (all commands, flags, gotchas)
 
 **CRITICAL**: The `--name` in `set-relay` must match the target name you use in `add-target` and when executing commands. The daemon registers with the relay using this name, and clients look up targets by this name. If they don't match, commands will fail with "target not connected" even if the daemon is running.
+
+**Pair message hostname**: The daemon sends `td.name` (the registered name from `set-relay --name`) as the `Hostname` field in pair messages — NOT `os.Hostname()`. If the listener expects name "supergato" but the daemon registered as "container-abc", pairing fails silently with "target not connected".
 
 ### Group management
 ```
@@ -246,6 +271,7 @@ All command execution returns JSON:
 - **Timeout**: Commands support `--timeout <seconds>` to prevent hanging
 - **Daemon mode**: Use `--daemon` flag to run processes in background
 - **Auto-reconnect**: Daemons automatically reconnect every 5s if connection drops
+- **Disconnect is a kill switch**: `pair disconnect` sends a message that makes the daemon call `os.Exit(0)` — it does NOT reconnect. This is intentional. (Normal connection drops still trigger auto-reconnect.)
 - **Token authentication**: Daemons require tokens for security; tokens are generated on start
 - **Health cache**: `rcl` caches probe results for 1h per target; `--refresh` forces a fresh probe
 
@@ -283,6 +309,18 @@ Missing `Environment=HOME=/root` in the unit file. systemd doesn't set HOME by d
 - Test relay health: `curl -s http://<relay-host>:<port>/health`
 - Expected response: `{"status":"healthy"}`
 - Verify firewall allows WebSocket traffic
+
+### All nodes show "connect to relay: dial tcp..."
+The relay is down or moved. All daemons connect to the same relay URL — if it's unreachable, every node appears down.
+```bash
+# Check relay process on relay host
+ssh <relay-host> "pgrep -af 'remotecmd-cli relay'"
+# Restart if needed
+ssh <relay-host> "remotecmd-cli relay daemon start --port 3032 -daemon"
+# Check relay log
+ssh <relay-host> "tail -20 /tmp/remotecmd-relay.log"
+```
+**DNS gotcha**: If daemons use a hostname (e.g. `relay.intrane.fr`) but the relay moved to a different IP, DNS must be updated. Check what daemons actually connect to: `cat ~/.remotecmd/config.json | grep -A2 relay` on any node.
 
 ### Command execution failures
 - Test with simple command: `remotecmd-cli --target <name> --cmd 'echo test' --timeout 10`
