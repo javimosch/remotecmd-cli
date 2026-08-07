@@ -490,7 +490,10 @@ func (td *TargetDaemon) sendPairIfNeeded() {
 	if err != nil || code == "" {
 		return
 	}
-	hostname, _ := os.Hostname()
+	// Use the registered name (td.name) as the hostname in the pair message.
+	// This is the name the relay knows the daemon by, so the listener can
+	// save it as the relay_name for command routing.
+	hostname := td.name
 	activationKey, _ := loadActivationKey()
 	log.Printf("Sending pair message (code=%s, hostname=%s, hasActivationKey=%v)", code, hostname, activationKey != "")
 	td.send(&Message{
