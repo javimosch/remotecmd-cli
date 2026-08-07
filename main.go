@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-const Version = "1.6.0"
+const Version = "1.7.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -45,6 +45,8 @@ func main() {
 		handleAliasSubcommand(os.Args[2:])
 	case "pair":
 		handlePairSubcommand(os.Args[2:])
+	case "sidecar":
+		handleSidecarSubcommand(os.Args[2:])
 	case "cp":
 		handleCP(os.Args[2:])
 	case "exec":

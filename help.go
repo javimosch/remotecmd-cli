@@ -54,6 +54,9 @@ RELAY (run on relay hub machine):
   remotecmd-cli relay daemon start --port 3032 -daemon  Start relay hub (background)
   remotecmd-cli relay daemon stop                    Stop relay hub
   remotecmd-cli relay daemon status                  Check relay hub status
+  remotecmd-cli relay add-key <key>                  Add activation key (hot-reloaded)
+  remotecmd-cli relay remove-key <key>               Remove activation key
+  remotecmd-cli relay list-keys                      List activation keys (masked)
 
 DAEMON (run on target machine):
   remotecmd-cli daemon start [--token <t>]            Start target daemon (foreground)
@@ -66,8 +69,12 @@ PERSISTENT CLIENT:
   echo '{"target":"<n>","cmd":"<cmd>"}' | remotecmd-cli client    Batch mode via stdin
 
 PAIRING:
-  remotecmd-cli pair listen [--name <n>] [--timeout <s>] [--code <c>]  Wait for peer; prints one-liner
-  remotecmd-cli pair accept --code <c>                                   Accept a pair code
+  remotecmd-cli pair listen [--name <n>] [--timeout <s>] [--code <c>] [--require-activation-key]  Wait for peer; prints one-liner
+  remotecmd-cli pair accept --code <c> [--activation-key <key>]                                     Accept a pair code
+  remotecmd-cli pair disconnect --target <name>                                                      Disconnect a paired target (kill switch)
+
+SIDECAR ACTIVATION:
+  remotecmd-cli sidecar activate --url <u> --relay <r> --code <c> [--activation-key <k>] [--name <n>]  Activate a sidecar in a remote container
 
 MCP SERVER (AI agent integration):
   remotecmd-cli mcp                                  Start MCP server (stdio mode for AI agents)
@@ -82,7 +89,10 @@ func printRelayHelp() {
 	fmt.Println(`Usage: remotecmd-cli relay <command>
 
 Commands:
-  daemon    Manage relay daemon (start/stop/status)`)
+  daemon       Manage relay daemon (start/stop/status)
+  add-key <k>  Add an activation key (hot-reloaded, no restart needed)
+  remove-key <k>  Remove an activation key
+  list-keys    List configured activation keys (masked)`)
 }
 
 func printRelayDaemonHelp() {

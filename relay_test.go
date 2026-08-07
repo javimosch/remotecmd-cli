@@ -100,7 +100,7 @@ func TestRelayUnregisterCleansMaps(t *testing.T) {
 	rs.mu.Lock()
 	rs.clients["test-node"] = rc
 	rs.pending["req-1"] = &pendingRequest{clientConn: rc}
-	rs.pairListeners["code-1"] = rc
+	rs.pairListeners["code-1"] = &pairListener{conn: rc}
 	rs.mu.Unlock()
 
 	rs.unregister(rc)
@@ -132,7 +132,7 @@ func TestRelayUnregisterOtherClient(t *testing.T) {
 	rs.clients["node-1"] = rc1
 	rs.clients["node-2"] = rc2
 	rs.pending["req-1"] = &pendingRequest{clientConn: rc1}
-	rs.pairListeners["code-1"] = rc2
+	rs.pairListeners["code-1"] = &pairListener{conn: rc2}
 	rs.mu.Unlock()
 
 	// Unregister rc1 — should only remove rc1's entries

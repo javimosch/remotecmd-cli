@@ -22,6 +22,8 @@ func handlePairSubcommand(args []string) {
 		handlePairListen(args[1:])
 	case "accept":
 		handlePairAccept(args[1:])
+	case "disconnect":
+		handlePairDisconnect(args[1:])
 	default:
 		printPairHelp()
 		osExit(ExitConfigError)
@@ -33,6 +35,7 @@ func handlePairListen(args []string) {
 	name := fs.String("name", "", "name to assign to the new target (falls back to remote hostname)")
 	timeoutSec := fs.Int("timeout", 300, "seconds to wait for peer to connect (default 5 min)")
 	codeFlag := fs.String("code", "", "specific pair code to listen for (default: auto-generate)")
+	requireActivationKey := fs.Bool("require-activation-key", false, "require the joining daemon to present a valid activation key")
 	fs.Parse(args)
 
 	cfg, err := loadConfig()
@@ -58,7 +61,7 @@ func handlePairListen(args []string) {
 	}
 	defer conn.Close()
 
-	if err := conn.WriteJSON(&Message{Type: "pair_listen", Code: code}); err != nil {
+	if err := conn.WriteJSON(&Message{Type: "pair_listen", Code: code, RequireActivationKey: *requireActivationKey}); err != nil {
 		fmt.Fprintf(os.Stderr, "Error sending pair_listen: %v\n", err)
 		osExit(ExitConfigError)
 	}
@@ -74,6 +77,10 @@ func handlePairListen(args []string) {
 	fmt.Println()
 	fmt.Printf("  %s\n", oneLiner)
 	fmt.Println()
+	if *requireActivationKey {
+		fmt.Println("Activation key required — the joining daemon must pass --activation-key.")
+		fmt.Println()
+	}
 	fmt.Printf("Listening for pair code %s (timeout: %ds)...\n", code, *timeoutSec)
 
 	resultCh := make(chan *Message, 1)
@@ -140,11 +147,12 @@ func generateShortCode() string {
 func handlePairAccept(args []string) {
 	fs := flag.NewFlagSet("pair accept", flag.ExitOnError)
 	codeFlag := fs.String("code", "", "pair code to accept (required)")
+	activationKey := fs.String("activation-key", "", "activation key (required if listener set --require-activation-key)")
 	fs.Parse(args)
 
 	if *codeFlag == "" {
 		fmt.Fprintln(os.Stderr, "Error: --code is required")
-		fmt.Fprintln(os.Stderr, "Usage: remotecmd-cli pair accept --code <code>")
+		fmt.Fprintln(os.Stderr, "Usage: remotecmd-cli pair accept --code <code> [--activation-key <key>]")
 		osExit(ExitConfigError)
 	}
 
@@ -154,6 +162,16 @@ func handlePairAccept(args []string) {
 		osExit(ExitConfigError)
 	}
 	fmt.Printf("Pair code %q saved to %s\n", *codeFlag, pairCodePath())
+
+	// Save the activation key to disk (if provided) so the daemon can send it
+	if *activationKey != "" {
+		if err := saveActivationKey(*activationKey); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: could not save activation key: %v\n", err)
+			osExit(ExitConfigError)
+		}
+	} else {
+		deleteActivationKey()
+	}
 
 	// Signal the running daemon to re-check the pair code immediately
 	pidData, err := os.ReadFile(daemonPidFile)
@@ -190,6 +208,12 @@ func printPairHelp() {
 	fmt.Println(`Usage: remotecmd-cli pair <command>
 
 Commands:
-  listen [--name <n>] [--timeout <s>] [--code <c>]   Wait for peer to pair; prints one-liner to share
-  accept --code <c>                                   Accept a pair code on this machine (signals running daemon)`)
+  listen [--name <n>] [--timeout <s>] [--code <c>] [--require-activation-key]
+      Wait for peer to pair; prints one-liner to share
+
+  accept --code <c> [--activation-key <key>]
+      Accept a pair code on this machine (signals running daemon)
+
+  disconnect --target <name>
+      Disconnect a paired target (sends disconnect via relay, daemon exits cleanly)`)
 }

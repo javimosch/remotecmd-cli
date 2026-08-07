@@ -53,11 +53,18 @@ type multiPendingEntry struct {
 	timer       *time.Timer
 }
 
+// pairListener tracks a pending pair listener and whether it requires
+// an activation key from the joining daemon.
+type pairListener struct {
+	conn                 *relayClient
+	requireActivationKey bool
+}
+
 type RelayServer struct {
 	port         int
 	clients      map[string]*relayClient
 	pending      map[string]*pendingRequest
-	pairListeners map[string]*relayClient
+	pairListeners map[string]*pairListener
 	multiPending  map[string]*multiPendingEntry
 	subToMulti    map[string]*subTargetInfo
 	tunnels       map[string]*tunnelSession
@@ -73,7 +80,7 @@ func NewRelayServer() *RelayServer {
 	return &RelayServer{
 		clients:       make(map[string]*relayClient),
 		pending:       make(map[string]*pendingRequest),
-		pairListeners: make(map[string]*relayClient),
+		pairListeners: make(map[string]*pairListener),
 		multiPending:  make(map[string]*multiPendingEntry),
 		subToMulti:    make(map[string]*subTargetInfo),
 		tunnels:       make(map[string]*tunnelSession),
@@ -467,9 +474,12 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			rs.mu.Lock()
-			rs.pairListeners[msg.Code] = rc
+			rs.pairListeners[msg.Code] = &pairListener{
+				conn:                 rc,
+				requireActivationKey: msg.RequireActivationKey,
+			}
 			rs.mu.Unlock()
-			log.Printf("Pair listener registered for code %s", msg.Code)
+			log.Printf("Pair listener registered for code %s (requireActivationKey=%v)", msg.Code, msg.RequireActivationKey)
 
 		case "pair":
 			if msg.Code == "" || msg.Token == "" {
@@ -486,8 +496,21 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 				log.Printf("Pair code %s not found or already used (daemon will retry)", msg.Code)
 				continue
 			}
+			// Validate activation key if the listener requires one
+			if listener.requireActivationKey {
+				if msg.ActivationKey == "" || !activationKeys.isValid(msg.ActivationKey) {
+					log.Printf("Pair code %s rejected: invalid or missing activation key", msg.Code)
+					rc.send(&Message{Type: "error", Error: "pair rejected: activation key required but not provided or invalid"})
+					// Re-register the listener so the real peer can still pair
+					rs.mu.Lock()
+					rs.pairListeners[msg.Code] = listener
+					rs.mu.Unlock()
+					continue
+				}
+				log.Printf("Pair code %s: activation key validated", msg.Code)
+			}
 			log.Printf("Pair code %s matched, notifying listener (hostname=%s)", msg.Code, msg.Hostname)
-			listener.send(&Message{
+			listener.conn.send(&Message{
 				Type:     "pair_done",
 				Code:     msg.Code,
 				Token:    msg.Token,
@@ -497,6 +520,30 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 				Type: "pair_confirmed",
 				Code: msg.Code,
 			})
+
+		case "disconnect":
+			if msg.Target == "" {
+				rc.send(&Message{Type: "error", Error: "disconnect requires target"})
+				continue
+			}
+			rs.mu.RLock()
+			target, ok := rs.clients[msg.Target]
+			rs.mu.RUnlock()
+			if !ok {
+				rc.send(&Message{Type: "error", Error: "target not connected: " + msg.Target})
+				continue
+			}
+			if target.token != msg.Token {
+				rc.send(&Message{Type: "error", Error: "invalid token for target: " + msg.Target})
+				continue
+			}
+			// Forward disconnect to the daemon
+			if err := target.send(&Message{Type: "disconnect"}); err != nil {
+				rc.send(&Message{Type: "error", Error: "failed to forward disconnect: " + err.Error()})
+				continue
+			}
+			log.Printf("Disconnect forwarded to %s", msg.Target)
+			rc.send(&Message{Type: "disconnect_confirmed", Target: msg.Target})
 
 		case "tunnel_open":
 			rs.handleTunnelOpen(rc, &msg)
@@ -549,7 +596,7 @@ func (rs *RelayServer) unregister(rc *relayClient) {
 	}
 
 	for code, listener := range rs.pairListeners {
-		if listener == rc {
+		if listener.conn == rc {
 			delete(rs.pairListeners, code)
 		}
 	}

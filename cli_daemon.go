@@ -14,9 +14,59 @@ func handleRelaySubcommand(args []string) {
 	switch args[0] {
 	case "daemon":
 		handleRelayDaemon(args[1:])
+	case "add-key":
+		handleRelayAddKey(args[1:])
+	case "remove-key":
+		handleRelayRemoveKey(args[1:])
+	case "list-keys":
+		handleRelayListKeys()
 	default:
 		printRelayHelp()
 		osExit(ExitConfigError)
+	}
+}
+
+func handleRelayAddKey(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: remotecmd-cli relay add-key <key>")
+		osExit(ExitConfigError)
+	}
+	key := args[0]
+	if err := addActivationKey(key); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		osExit(classifyError(err))
+	}
+	fmt.Printf("Activation key added: %s\n", key)
+	fmt.Println("The relay will pick it up automatically (no restart needed).")
+}
+
+func handleRelayRemoveKey(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: remotecmd-cli relay remove-key <key>")
+		osExit(ExitConfigError)
+	}
+	key := args[0]
+	if err := removeActivationKey(key); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		osExit(classifyError(err))
+	}
+	fmt.Printf("Activation key removed: %s\n", key)
+}
+
+func handleRelayListKeys() {
+	keys := activationKeys.list()
+	if len(keys) == 0 {
+		fmt.Println("No activation keys configured.")
+		fmt.Printf("File: %s\n", activationKeysPath())
+		return
+	}
+	fmt.Printf("Activation keys (%d) — %s:\n", len(keys), activationKeysPath())
+	for _, k := range keys {
+		masked := k
+		if len(masked) > 8 {
+			masked = masked[:4] + "..." + masked[len(masked)-4:]
+		}
+		fmt.Printf("  %s\n", masked)
 	}
 }
 

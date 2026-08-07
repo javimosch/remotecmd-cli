@@ -24,8 +24,10 @@ type Message struct {
 	StreamName string `json:"stream_name,omitempty"`
 	Data       string `json:"data,omitempty"`
 	// Pairing fields
-	Code     string `json:"code,omitempty"`
-	Hostname string `json:"hostname,omitempty"`
+	Code                 string `json:"code,omitempty"`
+	Hostname             string `json:"hostname,omitempty"`
+	RequireActivationKey bool   `json:"require_activation_key,omitempty"`
+	ActivationKey        string `json:"activation_key,omitempty"`
 	// File transfer fields
 	SrcPath  string `json:"src_path,omitempty"`
 	DstPath  string `json:"dst_path,omitempty"`

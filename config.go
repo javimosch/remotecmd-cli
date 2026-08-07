@@ -281,6 +281,34 @@ func deletePairCode() {
 	os.Remove(pairCodePath())
 }
 
+// --- Activation key (daemon-side, for pairing) ---
+
+func activationKeyPath() string {
+	if override := os.Getenv("RCMD_TEST_CONFIG_DIR"); override != "" {
+		return filepath.Join(override, "activation_key")
+	}
+	return filepath.Join(configDir(), "activation_key")
+}
+
+func saveActivationKey(key string) error {
+	if err := ensureConfigDir(); err != nil {
+		return err
+	}
+	return os.WriteFile(activationKeyPath(), []byte(key), 0600)
+}
+
+func loadActivationKey() (string, error) {
+	data, err := os.ReadFile(activationKeyPath())
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
+func deleteActivationKey() {
+	os.Remove(activationKeyPath())
+}
+
 func loadToken() (string, error) {
 	data, err := os.ReadFile(tokenPath())
 	if err != nil {

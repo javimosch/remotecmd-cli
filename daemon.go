@@ -135,6 +135,7 @@ func (td *TargetDaemon) run() {
 		case "pair_confirmed":
 			log.Printf("Pair confirmed (code=%s)", msg.Code)
 			deletePairCode()
+			deleteActivationKey()
 
 		case "tunnel_open":
 			go td.handleTunnelOpen(&msg)
@@ -144,6 +145,11 @@ func (td *TargetDaemon) run() {
 
 		case "tunnel_close":
 			td.handleTunnelClose(&msg)
+
+		case "disconnect":
+			log.Printf("Received disconnect from relay — exiting cleanly")
+			td.send(&Message{Type: "disconnect_ack"})
+			return
 
 		case "error":
 			// Suppress pair-related errors — daemon retries automatically
@@ -485,12 +491,14 @@ func (td *TargetDaemon) sendPairIfNeeded() {
 		return
 	}
 	hostname, _ := os.Hostname()
-	log.Printf("Sending pair message (code=%s, hostname=%s)", code, hostname)
+	activationKey, _ := loadActivationKey()
+	log.Printf("Sending pair message (code=%s, hostname=%s, hasActivationKey=%v)", code, hostname, activationKey != "")
 	td.send(&Message{
-		Type:     "pair",
-		Code:     code,
-		Token:    td.token,
-		Hostname: hostname,
+		Type:          "pair",
+		Code:          code,
+		Token:         td.token,
+		Hostname:      hostname,
+		ActivationKey: activationKey,
 	})
 	// Don't delete the pair code here — keep retrying until
 	// the relay sends pair_confirmed (which deletes it).
