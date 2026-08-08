@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -16,12 +17,29 @@ type relayClient struct {
 	token     string
 	mu        sync.Mutex
 	chunkRoutes map[string]*chunkRoute // client transfer ID -> forwarding route
+	lastBinaryRoute *chunkRoute // route for the next binary frame (BinaryChunk=true)
 }
 
 func (c *relayClient) send(msg *Message) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.conn.WriteJSON(msg)
+}
+
+// sendRawBytes sends a raw binary frame to the client (no JSON wrapping).
+// Used for forwarding binary file chunk data.
+func (c *relayClient) sendRawBytes(data []byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.conn.WriteMessage(websocket.BinaryMessage, data)
+}
+
+// sendRawJSON sends pre-marshaled JSON bytes as a text frame.
+// Used for forwarding file chunk headers without re-serialization.
+func (c *relayClient) sendRawJSON(data []byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.conn.WriteMessage(websocket.TextMessage, data)
 }
 
 
@@ -127,13 +145,31 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	for {
-		var msg Message
-		if err := conn.ReadJSON(&msg); err != nil {
+		// Read raw message to handle both text (JSON) and binary frames
+		msgType, rawData, err := conn.ReadMessage()
+		if err != nil {
 			if websocket.IsUnexpectedCloseError(err,
 				websocket.CloseGoingAway, websocket.CloseNormalClosure) {
 				log.Printf("Read error: %v", err)
 			}
 			return
+		}
+
+		// Binary frames are file chunk payloads — forward to the target
+		// identified by the last chunkRoute that has BinaryChunk=true.
+		if msgType == websocket.BinaryMessage {
+			if rc.lastBinaryRoute != nil {
+				if err := rc.lastBinaryRoute.target.sendRawBytes(rawData); err != nil {
+					log.Printf("Forward binary chunk to %s failed: %v", rc.lastBinaryRoute.target.name, err)
+				}
+			}
+			continue
+		}
+
+		var msg Message
+		if err := json.Unmarshal(rawData, &msg); err != nil {
+			log.Printf("JSON unmarshal error: %v", err)
+			continue
 		}
 
 		switch msg.Type {
@@ -183,11 +219,12 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 			rs.mu.Unlock()
 
 			forward := &Message{
-				Type:    "command",
-				ID:      reqID,
-				Cmd:     msg.Cmd,
-				Timeout: msg.Timeout,
-				Stream:  msg.Stream,
+				Type:      "command",
+				ID:        reqID,
+				Cmd:       msg.Cmd,
+				Timeout:   msg.Timeout,
+				Stream:    msg.Stream,
+				StdinData: msg.StdinData,
 			}
 			if err := target.send(forward); err != nil {
 				log.Printf("Forward to %s failed: %v", msg.Target, err)
@@ -250,22 +287,53 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 				log.Printf("Dropping file_chunk for unknown transfer id=%s", msg.ID)
 				continue
 			}
-			forward := &Message{
-				Type:  "file_chunk",
-				ID:    route.reqID,
-				Seq:   msg.Seq,
-				Data:  msg.Data,
-				Final: msg.Final,
-			}
-			if err := route.target.send(forward); err != nil {
-				log.Printf("Forward chunk to %s failed: %v", route.target.name, err)
-				delete(rc.chunkRoutes, msg.ID)
-				rs.cleanupPending(route.reqID)
-				rc.send(errResult(msg.ID, "failed to forward file chunk: "+err.Error()))
-				continue
-			}
-			if msg.Final {
-				delete(rc.chunkRoutes, msg.ID)
+			if msg.BinaryChunk {
+				// Binary chunk: forward the JSON header (with patched ID) as raw text,
+				// then set lastBinaryRoute so the next binary frame is forwarded raw.
+				// Patch the ID in the raw JSON bytes directly (avoid full re-marshal).
+				forwardHeader := &Message{
+					Type:        "file_chunk",
+					ID:          route.reqID,
+					Seq:         msg.Seq,
+					Final:       msg.Final,
+					BinaryChunk: true,
+				}
+				headerBytes, err := json.Marshal(forwardHeader)
+				if err != nil {
+					log.Printf("Marshal binary chunk header: %v", err)
+					continue
+				}
+				if err := route.target.sendRawJSON(headerBytes); err != nil {
+					log.Printf("Forward binary chunk header to %s failed: %v", route.target.name, err)
+					delete(rc.chunkRoutes, msg.ID)
+					rs.cleanupPending(route.reqID)
+					rc.send(errResult(msg.ID, "failed to forward file chunk header: "+err.Error()))
+					continue
+				}
+				// Remember where the next binary frame goes
+				rc.lastBinaryRoute = route
+				if msg.Final {
+					delete(rc.chunkRoutes, msg.ID)
+				}
+			} else {
+				// Legacy base64 chunk (backwards compat with old clients)
+				forward := &Message{
+					Type:  "file_chunk",
+					ID:    route.reqID,
+					Seq:   msg.Seq,
+					Data:  msg.Data,
+					Final: msg.Final,
+				}
+				if err := route.target.send(forward); err != nil {
+					log.Printf("Forward chunk to %s failed: %v", route.target.name, err)
+					delete(rc.chunkRoutes, msg.ID)
+					rs.cleanupPending(route.reqID)
+					rc.send(errResult(msg.ID, "failed to forward file chunk: "+err.Error()))
+					continue
+				}
+				if msg.Final {
+					delete(rc.chunkRoutes, msg.ID)
+				}
 			}
 
 		case "stream_chunk":

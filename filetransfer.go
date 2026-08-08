@@ -3,7 +3,6 @@ package main
 import (
 	"archive/tar"
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -16,15 +15,16 @@ import (
 )
 
 const (
-	// fileChunkSize is the raw (pre-base64) size of each file transfer chunk.
-	// 4 MiB of raw data encodes to ~5.6 MiB of base64, which stays comfortably
-	// below relayMaxFrameSize once wrapped in the JSON envelope.
-	fileChunkSize = 4 << 20 // 4 MiB
+	// fileChunkSize is the raw size of each file transfer chunk.
+	// 8 MiB raw — sent as a WebSocket BinaryMessage (no base64 overhead).
+	// The JSON envelope for each chunk is tiny (~100 bytes), so the relay
+	// frame limit only applies to the binary frame which carries raw bytes.
+	fileChunkSize = 8 << 20 // 8 MiB
 
 	// relayMaxFrameSize is the maximum WebSocket frame the relay will accept.
 	// Frames larger than this are rejected by the relay, so the client caps
 	// each chunk well below the limit and surfaces a clear error otherwise.
-	relayMaxFrameSize = 12 << 20 // 12 MiB
+	relayMaxFrameSize = 16 << 20 // 16 MiB (increased from 12 to fit 8 MiB binary chunks)
 )
 
 func handleCP(args []string) {
@@ -305,9 +305,9 @@ type frameWriter interface {
 }
 
 // sendFileFrames streams data to the relay as an initial "file_transfer"
-// announcement followed by one or more "file_chunk" frames. Every frame is
-// kept under relayMaxFrameSize; if a single frame would exceed it, a clear
-// error is returned instead of silently stalling.
+// announcement followed by one or more "file_chunk" frames. Each chunk is
+// sent as a small JSON header (TextMessage) + a raw binary frame (BinaryMessage),
+// eliminating base64 overhead and JSON re-serialization on the relay.
 func sendFileFrames(conn frameWriter, base *Message, data []byte, stream bool) error {
 	return sendFileFramesWithSize(conn, base, data, stream, fileChunkSize)
 }
@@ -340,19 +340,26 @@ func sendFileFramesWithSize(conn frameWriter, base *Message, data []byte, stream
 
 	sent := 0
 	for i, chunk := range chunks {
-		msg := &Message{
-			Type:  "file_chunk",
-			ID:    base.ID,
-			Seq:   i,
-			Data:  base64.StdEncoding.EncodeToString(chunk),
-			Final: i == total-1,
+		// Send JSON header (tiny — no Data field, no base64)
+		header := &Message{
+			Type:        "file_chunk",
+			ID:          base.ID,
+			Seq:         i,
+			Final:       i == total-1,
+			BinaryChunk: true,
 		}
-		frame, err := marshalWithinLimit(msg, relayMaxFrameSize)
+		headerFrame, err := marshalWithinLimit(header, relayMaxFrameSize)
 		if err != nil {
 			return err
 		}
-		if err := conn.WriteMessage(websocket.TextMessage, frame); err != nil {
-			return fmt.Errorf("sending file chunk %d/%d: %v", i+1, total, err)
+		if err := conn.WriteMessage(websocket.TextMessage, headerFrame); err != nil {
+			return fmt.Errorf("sending file chunk header %d/%d: %v", i+1, total, err)
+		}
+		// Send raw binary payload (no base64, no JSON wrapping)
+		if len(chunk) > 0 {
+			if err := conn.WriteMessage(websocket.BinaryMessage, chunk); err != nil {
+				return fmt.Errorf("sending file chunk data %d/%d: %v", i+1, total, err)
+			}
 		}
 		sent += len(chunk)
 		if stream {

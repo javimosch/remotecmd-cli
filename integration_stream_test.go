@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -181,10 +182,32 @@ func TestIntegrationChunkedFileTransferViaRelay(t *testing.T) {
 	got := make(chan int, 1)
 	go func() {
 		buffers := make(map[string]*bytes.Buffer)
+		var pendingBinaryID string
+		var pendingBinaryFinal bool
 		for {
-			var msg Message
-			if err := daemon.ReadJSON(&msg); err != nil {
+			msgType, rawData, err := daemon.ReadMessage()
+			if err != nil {
 				return
+			}
+			if msgType == websocket.BinaryMessage {
+				// Binary frame: append to pending buffer
+				if pendingBinaryID != "" {
+					buf, ok := buffers[pendingBinaryID]
+					if ok {
+						buf.Write(rawData)
+						if pendingBinaryFinal {
+							got <- buf.Len()
+							delete(buffers, pendingBinaryID)
+							daemon.WriteJSON(&Message{Type: "file_transfer_result", ID: pendingBinaryID, OK: boolPtr(true)})
+						}
+					}
+					pendingBinaryID = ""
+				}
+				continue
+			}
+			var msg Message
+			if err := json.Unmarshal(rawData, &msg); err != nil {
+				continue
 			}
 			switch msg.Type {
 			case "file_transfer":
@@ -197,6 +220,13 @@ func TestIntegrationChunkedFileTransferViaRelay(t *testing.T) {
 					daemon.WriteJSON(&Message{Type: "file_transfer_result", ID: msg.ID, OK: boolPtr(false), Error: "unknown transfer"})
 					continue
 				}
+				if msg.BinaryChunk {
+					// Data arrives in next binary frame
+					pendingBinaryID = msg.ID
+					pendingBinaryFinal = msg.Final
+					continue
+				}
+				// Legacy base64 chunk
 				dec, err := base64.StdEncoding.DecodeString(msg.Data)
 				if err != nil {
 					daemon.WriteJSON(&Message{Type: "file_transfer_result", ID: msg.ID, OK: boolPtr(false), Error: "decode: " + err.Error()})

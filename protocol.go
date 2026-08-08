@@ -39,6 +39,12 @@ type Message struct {
 	TotalChunks int   `json:"total_chunks,omitempty"`
 	TotalSize   int64 `json:"total_size,omitempty"`
 	Final       bool  `json:"final,omitempty"`
+	// Binary chunk flag: when true, Data is sent as a WebSocket BinaryMessage
+	// (raw bytes, no base64). The JSON envelope is sent as a preceding TextMessage
+	// with BinaryChunk=true and no Data field; the next frame is binary.
+	BinaryChunk bool `json:"binary_chunk,omitempty"`
+	// Stdin data for command execution (issue #6: pipe stdin to remote command)
+	StdinData string `json:"stdin_data,omitempty"`
 	// Multi-target fields
 	Targets     []string          `json:"targets,omitempty"`
 	Tokens      map[string]string `json:"tokens,omitempty"`

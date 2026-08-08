@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -30,15 +31,20 @@ type TargetDaemon struct {
 
 	reMu       sync.Mutex
 	reassembly map[string]*fileReassembly
+	// pendingBinaryChunk tracks the chunk header that precedes a binary frame
+	pendingBinaryChunk *fileReassembly
 }
 
 // fileReassembly accumulates the chunks of an in-flight chunked file transfer
 // until the final frame arrives, at which point the payload is written out.
 type fileReassembly struct {
-	mode string
-	src  string
-	dst  string
-	buf  bytes.Buffer
+	mode  string
+	src   string
+	dst   string
+	buf   bytes.Buffer
+	id    string
+	seq   int
+	final bool
 }
 
 func runDaemon(token string) {
@@ -99,13 +105,26 @@ func (td *TargetDaemon) run() {
 	})
 
 	for {
-		var msg Message
-		if err := conn.ReadJSON(&msg); err != nil {
+		// Read raw message to handle both text (JSON) and binary frames
+		msgType, rawData, err := conn.ReadMessage()
+		if err != nil {
 			if websocket.IsUnexpectedCloseError(err,
 				websocket.CloseGoingAway, websocket.CloseNormalClosure) {
 				log.Printf("Read error: %v", err)
 			}
 			return
+		}
+
+		// Binary frames are file chunk payloads — append to the pending reassembly
+		if msgType == websocket.BinaryMessage {
+			td.handleBinaryChunk(rawData)
+			continue
+		}
+
+		var msg Message
+		if err := json.Unmarshal(rawData, &msg); err != nil {
+			log.Printf("JSON unmarshal error: %v", err)
+			continue
 		}
 
 		switch msg.Type {
@@ -192,6 +211,16 @@ func (td *TargetDaemon) executeCommandBuffered(msg *Message) {
 	cmd.Stdout = &stdoutBuf
 	cmd.Stderr = &stderrBuf
 
+	// Forward stdin data if provided (issue #6: pipe stdin to remote command)
+	if msg.StdinData != "" {
+		stdinBytes, err := base64.StdEncoding.DecodeString(msg.StdinData)
+		if err != nil {
+			td.send(errResult(msg.ID, "failed to decode stdin data: "+err.Error()))
+			return
+		}
+		cmd.Stdin = bytes.NewReader(stdinBytes)
+	}
+
 	err := cmd.Run()
 	duration := time.Since(start).Milliseconds()
 	stdout := strings.TrimSpace(stdoutBuf.String())
@@ -231,6 +260,16 @@ func (td *TargetDaemon) executeCommandStreaming(msg *Message) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "sh", "-c", msg.Cmd)
+
+	// Forward stdin data if provided (issue #6)
+	if msg.StdinData != "" {
+		stdinBytes, err := base64.StdEncoding.DecodeString(msg.StdinData)
+		if err != nil {
+			td.send(errResult(msg.ID, "failed to decode stdin data: "+err.Error()))
+			return
+		}
+		cmd.Stdin = bytes.NewReader(stdinBytes)
+	}
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
@@ -356,7 +395,8 @@ func (td *TargetDaemon) beginChunkedTransfer(msg *Message) {
 }
 
 // handleFileChunk appends a chunk to its transfer's buffer and, on the final
-// chunk, writes the reassembled payload to disk.
+// chunk, writes the reassembled payload to disk. Supports both legacy base64
+// chunks (Data field) and binary chunks (BinaryChunk=true, data in next frame).
 func (td *TargetDaemon) handleFileChunk(msg *Message) {
 	td.reMu.Lock()
 	r, ok := td.reassembly[msg.ID]
@@ -366,6 +406,17 @@ func (td *TargetDaemon) handleFileChunk(msg *Message) {
 		return
 	}
 
+	if msg.BinaryChunk {
+		// Binary chunk: data arrives in the next WebSocket binary frame.
+		// Store pending state so handleBinaryChunk knows where to write.
+		r.id = msg.ID
+		r.seq = msg.Seq
+		r.final = msg.Final
+		td.pendingBinaryChunk = r
+		return
+	}
+
+	// Legacy base64 chunk
 	data, err := base64.StdEncoding.DecodeString(msg.Data)
 	if err != nil {
 		td.dropReassembly(msg.ID)
@@ -378,13 +429,35 @@ func (td *TargetDaemon) handleFileChunk(msg *Message) {
 		return
 	}
 
-	td.dropReassembly(msg.ID)
-	if err := writeTransfer(r); err != nil {
-		td.send(&Message{Type: "file_transfer_result", ID: msg.ID, OK: boolPtr(false), Error: err.Error()})
+	td.finishReassembly(r)
+}
+
+// handleBinaryChunk appends raw binary data to the pending transfer and
+// finalizes if the pending chunk was marked as final.
+func (td *TargetDaemon) handleBinaryChunk(data []byte) {
+	td.reMu.Lock()
+	r := td.pendingBinaryChunk
+	td.pendingBinaryChunk = nil
+	td.reMu.Unlock()
+	if r == nil {
+		log.Printf("Received binary chunk with no pending transfer")
 		return
 	}
-	log.Printf("Chunked file transfer succeeded (id=%s): %s -> %s (%d bytes)", msg.ID, r.src, r.dst, r.buf.Len())
-	td.send(&Message{Type: "file_transfer_result", ID: msg.ID, OK: boolPtr(true)})
+	r.buf.Write(data)
+	if r.final {
+		td.finishReassembly(r)
+	}
+}
+
+// finishReassembly writes the reassembled payload to disk and sends the result.
+func (td *TargetDaemon) finishReassembly(r *fileReassembly) {
+	td.dropReassembly(r.id)
+	if err := writeTransfer(r); err != nil {
+		td.send(&Message{Type: "file_transfer_result", ID: r.id, OK: boolPtr(false), Error: err.Error()})
+		return
+	}
+	log.Printf("Chunked file transfer succeeded (id=%s): %s -> %s (%d bytes)", r.id, r.src, r.dst, r.buf.Len())
+	td.send(&Message{Type: "file_transfer_result", ID: r.id, OK: boolPtr(true)})
 }
 
 func (td *TargetDaemon) dropReassembly(id string) {

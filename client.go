@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -10,6 +11,11 @@ import (
 )
 
 func handleExec(target, cmd string, timeout int, stream bool) error {
+	return handleExecWithStdin(target, cmd, timeout, stream, nil)
+}
+
+// handleExecWithStdin is like handleExec but pipes stdinData to the remote command.
+func handleExecWithStdin(target, cmd string, timeout int, stream bool, stdinData []byte) error {
 	cfg, err := loadConfig()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
@@ -44,6 +50,9 @@ func handleExec(target, cmd string, timeout int, stream bool) error {
 		Cmd:     cmd,
 		Timeout: timeout,
 		Stream:  stream,
+	}
+	if len(stdinData) > 0 {
+		req.StdinData = base64.StdEncoding.EncodeToString(stdinData)
 	}
 
 	if err := conn.WriteJSON(req); err != nil {

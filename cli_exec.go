@@ -3,9 +3,26 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 )
+
+// readPipedStdin returns stdin data if it's piped (not a terminal), nil otherwise.
+func readPipedStdin() []byte {
+	stat, err := os.Stdin.Stat()
+	if err != nil {
+		return nil
+	}
+	if (stat.Mode() & os.ModeCharDevice) != 0 {
+		return nil // terminal — no piped stdin
+	}
+	data, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return nil
+	}
+	return data
+}
 
 func handleExecFlags(args []string) {
 	fs := flag.NewFlagSet("exec", flag.ExitOnError)
@@ -21,7 +38,8 @@ func handleExecFlags(args []string) {
 		osExit(ExitConfigError)
 	}
 
-	if err := handleExec(*target, *cmd, *timeout, *stream); err != nil {
+	stdinData := readPipedStdin()
+	if err := handleExecWithStdin(*target, *cmd, *timeout, *stream, stdinData); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		osExit(classifyError(err))
 	}
@@ -92,7 +110,8 @@ func handleExecSubcommand(args []string) {
 			osExit(classifyError(err))
 		}
 	} else {
-		if err := handleExec(targetList[0], *cmd, *timeout, *stream); err != nil {
+		stdinData := readPipedStdin()
+		if err := handleExecWithStdin(targetList[0], *cmd, *timeout, *stream, stdinData); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			osExit(classifyError(err))
 		}
