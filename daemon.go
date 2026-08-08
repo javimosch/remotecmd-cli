@@ -37,14 +37,17 @@ type TargetDaemon struct {
 
 // fileReassembly accumulates the chunks of an in-flight chunked file transfer
 // until the final frame arrives, at which point the payload is written out.
+// For scp mode, chunks are streamed directly to disk via fileWriter to avoid
+// buffering the entire file in memory.
 type fileReassembly struct {
-	mode  string
-	src   string
-	dst   string
-	buf   bytes.Buffer
-	id    string
-	seq   int
-	final bool
+	mode       string
+	src        string
+	dst        string
+	buf        bytes.Buffer // used for rsync (tar) mode
+	id         string
+	seq        int
+	final      bool
+	fileWriter *os.File // used for scp mode — stream to disk
 }
 
 func runDaemon(token string) {
@@ -85,7 +88,11 @@ func runDaemon(token string) {
 }
 
 func (td *TargetDaemon) run() {
-	conn, _, err := websocket.DefaultDialer.Dial(td.relayURL, nil)
+	dialer := &websocket.Dialer{
+		ReadBufferSize:  1 << 20, // 1 MiB
+		WriteBufferSize: 1 << 20, // 1 MiB
+	}
+	conn, _, err := dialer.Dial(td.relayURL, nil)
 	if err != nil {
 		log.Printf("Connection failed: %v", err)
 		return
@@ -381,17 +388,29 @@ func (td *TargetDaemon) handleFileTransfer(msg *Message) {
 
 // beginChunkedTransfer registers reassembly state for an incoming chunked
 // file transfer. The actual bytes arrive as subsequent "file_chunk" frames.
+// For scp mode, a file writer is opened immediately so chunks stream to disk.
 func (td *TargetDaemon) beginChunkedTransfer(msg *Message) {
 	td.reMu.Lock()
 	defer td.reMu.Unlock()
 	if td.reassembly == nil {
 		td.reassembly = make(map[string]*fileReassembly)
 	}
-	td.reassembly[msg.ID] = &fileReassembly{
+	r := &fileReassembly{
 		mode: msg.Mode,
 		src:  msg.SrcPath,
 		dst:  msg.DstPath,
 	}
+	// For scp mode, open the destination file immediately and stream to disk
+	if msg.Mode == "scp" {
+		f, err := os.Create(msg.DstPath)
+		if err != nil {
+			log.Printf("Failed to create destination file for streaming: %v", err)
+			// Fall back to buffer mode
+		} else {
+			r.fileWriter = f
+		}
+	}
+	td.reassembly[msg.ID] = r
 }
 
 // handleFileChunk appends a chunk to its transfer's buffer and, on the final
@@ -408,7 +427,6 @@ func (td *TargetDaemon) handleFileChunk(msg *Message) {
 
 	if msg.BinaryChunk {
 		// Binary chunk: data arrives in the next WebSocket binary frame.
-		// Store pending state so handleBinaryChunk knows where to write.
 		r.id = msg.ID
 		r.seq = msg.Seq
 		r.final = msg.Final
@@ -420,10 +438,11 @@ func (td *TargetDaemon) handleFileChunk(msg *Message) {
 	data, err := base64.StdEncoding.DecodeString(msg.Data)
 	if err != nil {
 		td.dropReassembly(msg.ID)
+		td.closeFileWriter(r)
 		td.send(&Message{Type: "file_transfer_result", ID: msg.ID, OK: boolPtr(false), Error: "failed to decode chunk: " + err.Error()})
 		return
 	}
-	r.buf.Write(data)
+	td.writeChunkData(r, data)
 
 	if !msg.Final {
 		return
@@ -443,20 +462,57 @@ func (td *TargetDaemon) handleBinaryChunk(data []byte) {
 		log.Printf("Received binary chunk with no pending transfer")
 		return
 	}
-	r.buf.Write(data)
+	td.writeChunkData(r, data)
 	if r.final {
 		td.finishReassembly(r)
+	}
+}
+
+// writeChunkData writes chunk data to the file writer (scp streaming) or
+// to the in-memory buffer (rsync/tar mode, or fallback if file open failed).
+func (td *TargetDaemon) writeChunkData(r *fileReassembly, data []byte) {
+	if r.fileWriter != nil {
+		if _, err := r.fileWriter.Write(data); err != nil {
+			log.Printf("Failed to write chunk to file: %v", err)
+			// Fall back to buffer
+			r.buf.Write(data)
+		}
+	} else {
+		r.buf.Write(data)
+	}
+}
+
+// closeFileWriter closes the streaming file writer if open.
+func (td *TargetDaemon) closeFileWriter(r *fileReassembly) {
+	if r.fileWriter != nil {
+		r.fileWriter.Close()
+		r.fileWriter = nil
 	}
 }
 
 // finishReassembly writes the reassembled payload to disk and sends the result.
 func (td *TargetDaemon) finishReassembly(r *fileReassembly) {
 	td.dropReassembly(r.id)
-	if err := writeTransfer(r); err != nil {
-		td.send(&Message{Type: "file_transfer_result", ID: r.id, OK: boolPtr(false), Error: err.Error()})
-		return
+
+	var totalBytes int64
+	if r.fileWriter != nil {
+		// scp streaming mode — file is already written, just close
+		stat, _ := r.fileWriter.Stat()
+		if stat != nil {
+			totalBytes = stat.Size()
+		}
+		r.fileWriter.Close()
+		r.fileWriter = nil
+	} else {
+		// Buffer mode — write to disk now
+		if err := writeTransfer(r); err != nil {
+			td.send(&Message{Type: "file_transfer_result", ID: r.id, OK: boolPtr(false), Error: err.Error()})
+			return
+		}
+		totalBytes = int64(r.buf.Len())
 	}
-	log.Printf("Chunked file transfer succeeded (id=%s): %s -> %s (%d bytes)", r.id, r.src, r.dst, r.buf.Len())
+
+	log.Printf("Chunked file transfer succeeded (id=%s): %s -> %s (%d bytes)", r.id, r.src, r.dst, totalBytes)
 	td.send(&Message{Type: "file_transfer_result", ID: r.id, OK: boolPtr(true)})
 }
 
