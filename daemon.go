@@ -90,11 +90,7 @@ func runDaemon(token string) {
 }
 
 func (td *TargetDaemon) run() {
-	dialer := &websocket.Dialer{
-		ReadBufferSize:  1 << 20, // 1 MiB
-		WriteBufferSize: 1 << 20, // 1 MiB
-	}
-	conn, _, err := dialer.Dial(td.relayURL, nil)
+	conn, _, err := wsDialer().Dial(td.relayURL, nil)
 	if err != nil {
 		log.Printf("Connection failed: %v", err)
 		return

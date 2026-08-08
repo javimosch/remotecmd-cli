@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -132,6 +133,14 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close()
+
+	// Set TCP_NODELAY on the underlying connection to reduce latency
+	// for small JSON headers that precede binary chunks.
+	if conn.UnderlyingConn() != nil {
+		if tcpConn, ok := conn.UnderlyingConn().(*net.TCPConn); ok {
+			tcpConn.SetNoDelay(true)
+		}
+	}
 
 	// Reject frames larger than the negotiated limit instead of buffering
 	// unbounded data — clients chunk large file transfers to stay under it.

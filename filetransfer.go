@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -17,42 +18,85 @@ import (
 
 const (
 	// fileChunkSize is the raw size of each file transfer chunk.
-	// 8 MiB raw — sent as a WebSocket BinaryMessage (no base64 overhead).
-	// The JSON envelope for each chunk is tiny (~100 bytes), so the relay
-	// frame limit only applies to the binary frame which carries raw bytes.
+	// 8 MiB — a balance between fewer round-trips and keeping the
+	// relay's memory usage bounded. Larger chunks (16 MiB) caused
+	// throughput regressions on high-RTT links due to head-of-line
+	// blocking — the relay can't forward chunk N+1 until it finishes
+	// writing chunk N to the target.
 	fileChunkSize = 8 << 20 // 8 MiB
 
 	// relayMaxFrameSize is the maximum WebSocket frame the relay will accept.
-	// Frames larger than this are rejected by the relay, so the client caps
-	// each chunk well below the limit and surfaces a clear error otherwise.
-	relayMaxFrameSize = 16 << 20 // 16 MiB (increased from 12 to fit 8 MiB binary chunks)
+	relayMaxFrameSize = 16 << 20 // 16 MiB (fits 8 MiB binary chunks + overhead)
 
 	// compressionThreshold is the ratio below which we use the compressed version.
-	// If compressed size >= original * compressionThreshold, we send raw instead.
-	// 0.9 means we only use compression if it saves at least 10%.
 	compressionThreshold = 0.9
+
+	// compressionSampleSize is the number of bytes to test-compress as a
+	// quick heuristic. If the sample doesn't compress well, skip the full
+	// chunk — avoids wasting CPU on incompressible data (random binary,
+	// already-compressed files, encrypted data).
+	compressionSampleSize = 4096
 )
 
+// compressPool reuses gzip writer buffers across chunks to reduce GC pressure.
+var compressPool = sync.Pool{
+	New: func() interface{} {
+		return &bytes.Buffer{}
+	},
+}
+
 // tryCompress gzip-compresses data and returns the compressed version if it's
-// smaller than the original by at least 10%. Otherwise returns nil (use raw).
+// smaller than the original by at least 10%. Uses a sample-based heuristic to
+// skip incompressible data quickly without compressing the full chunk.
 func tryCompress(data []byte) []byte {
 	if len(data) < 1024 {
 		return nil // too small to bother
 	}
-	var buf bytes.Buffer
-	gz, err := gzip.NewWriterLevel(&buf, gzip.BestSpeed)
+
+	// Quick heuristic: compress a small sample first. If it doesn't compress
+	// well, the full chunk almost certainly won't either — skip it.
+	sampleEnd := compressionSampleSize
+	if sampleEnd > len(data) {
+		sampleEnd = len(data)
+	}
+	sample := data[:sampleEnd]
+	var sampleBuf bytes.Buffer
+	sgz, err := gzip.NewWriterLevel(&sampleBuf, gzip.BestSpeed)
 	if err != nil {
 		return nil
 	}
+	sgz.Write(sample)
+	sgz.Close()
+	// If the sample compressed to >= 95% of original, the data is likely
+	// incompressible — don't waste time compressing the full chunk.
+	if float64(sampleBuf.Len()) >= float64(len(sample))*0.95 {
+		return nil
+	}
+
+	// Sample compressed well — compress the full chunk.
+	buf := compressPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	gz, err := gzip.NewWriterLevel(buf, gzip.BestSpeed)
+	if err != nil {
+		compressPool.Put(buf)
+		return nil
+	}
 	if _, err := gz.Write(data); err != nil {
+		gz.Close()
+		compressPool.Put(buf)
 		return nil
 	}
 	if err := gz.Close(); err != nil {
+		compressPool.Put(buf)
 		return nil
 	}
 	if float64(buf.Len()) < float64(len(data))*compressionThreshold {
-		return buf.Bytes()
+		result := make([]byte, buf.Len())
+		copy(result, buf.Bytes())
+		compressPool.Put(buf)
+		return result
 	}
+	compressPool.Put(buf)
 	return nil
 }
 
@@ -137,13 +181,7 @@ func handleFileTransfer(target, src, dst string, stream bool) error {
 	}
 
 	u := wsURL(cfg.Relay.URL)
-	// Use a custom dialer with larger socket buffers to improve throughput
-	// on high-RTT links (default wmem_max is ~212KB which limits TCP window).
-	dialer := &websocket.Dialer{
-		ReadBufferSize:  1 << 20, // 1 MiB
-		WriteBufferSize: 1 << 20, // 1 MiB
-	}
-	conn, _, err := dialer.Dial(u, nil)
+	conn, _, err := wsDialer().Dial(u, nil)
 	if err != nil {
 		return fmt.Errorf("connecting to relay: %v", err)
 	}
