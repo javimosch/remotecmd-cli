@@ -2,8 +2,10 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -319,6 +321,7 @@ func TestRelayBinaryChunkForwarding(t *testing.T) {
 		buffers := make(map[string]*bytes.Buffer)
 		var pendingID string
 		var pendingFinal bool
+		var pendingCompressed bool
 		for {
 			msgType, rawData, err := daemon.ReadMessage()
 			if err != nil {
@@ -328,7 +331,19 @@ func TestRelayBinaryChunkForwarding(t *testing.T) {
 				if pendingID != "" {
 					buf, ok := buffers[pendingID]
 					if ok {
-						buf.Write(rawData)
+						data := rawData
+						if pendingCompressed {
+							gz, err := gzip.NewReader(bytes.NewReader(rawData))
+							if err == nil {
+								decomp, err := io.ReadAll(gz)
+								gz.Close()
+								if err == nil {
+									data = decomp
+								}
+							}
+							pendingCompressed = false
+						}
+						buf.Write(data)
 						if pendingFinal {
 							got <- buf.Len()
 							daemon.WriteJSON(&Message{
@@ -355,6 +370,7 @@ func TestRelayBinaryChunkForwarding(t *testing.T) {
 				if msg.BinaryChunk {
 					pendingID = msg.ID
 					pendingFinal = msg.Final
+					pendingCompressed = msg.Compressed
 				} else {
 					// Legacy
 					buf, ok := buffers[msg.ID]

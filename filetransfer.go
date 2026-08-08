@@ -3,6 +3,7 @@ package main
 import (
 	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -25,7 +26,35 @@ const (
 	// Frames larger than this are rejected by the relay, so the client caps
 	// each chunk well below the limit and surfaces a clear error otherwise.
 	relayMaxFrameSize = 16 << 20 // 16 MiB (increased from 12 to fit 8 MiB binary chunks)
+
+	// compressionThreshold is the ratio below which we use the compressed version.
+	// If compressed size >= original * compressionThreshold, we send raw instead.
+	// 0.9 means we only use compression if it saves at least 10%.
+	compressionThreshold = 0.9
 )
+
+// tryCompress gzip-compresses data and returns the compressed version if it's
+// smaller than the original by at least 10%. Otherwise returns nil (use raw).
+func tryCompress(data []byte) []byte {
+	if len(data) < 1024 {
+		return nil // too small to bother
+	}
+	var buf bytes.Buffer
+	gz, err := gzip.NewWriterLevel(&buf, gzip.BestSpeed)
+	if err != nil {
+		return nil
+	}
+	if _, err := gz.Write(data); err != nil {
+		return nil
+	}
+	if err := gz.Close(); err != nil {
+		return nil
+	}
+	if float64(buf.Len()) < float64(len(data))*compressionThreshold {
+		return buf.Bytes()
+	}
+	return nil
+}
 
 func handleCP(args []string) {
 	fs := flag.NewFlagSet("cp", flag.ExitOnError)
@@ -373,6 +402,14 @@ func sendFileStreaming(conn frameWriter, base *Message, r io.Reader, totalSize i
 			isFinal = false
 		}
 
+		// Try adaptive compression — use compressed version only if it saves 10%+
+		payload := buf[:n]
+		compressed := tryCompress(payload)
+		isCompressed := compressed != nil
+		if isCompressed {
+			payload = compressed
+		}
+
 		// Send JSON header
 		header := &Message{
 			Type:        "file_chunk",
@@ -380,6 +417,7 @@ func sendFileStreaming(conn frameWriter, base *Message, r io.Reader, totalSize i
 			Seq:         i,
 			Final:       isFinal,
 			BinaryChunk: true,
+			Compressed:  isCompressed,
 		}
 		headerFrame, err := marshalWithinLimit(header, relayMaxFrameSize)
 		if err != nil {
@@ -388,9 +426,9 @@ func sendFileStreaming(conn frameWriter, base *Message, r io.Reader, totalSize i
 		if err := conn.WriteMessage(websocket.TextMessage, headerFrame); err != nil {
 			return sent, i, fmt.Errorf("sending file chunk header %d: %v", i, err)
 		}
-		// Send raw binary payload
-		if n > 0 {
-			if err := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); err != nil {
+		// Send binary payload (compressed or raw)
+		if len(payload) > 0 {
+			if err := conn.WriteMessage(websocket.BinaryMessage, payload); err != nil {
 				return sent, i, fmt.Errorf("sending file chunk data %d: %v", i, err)
 			}
 		}
@@ -402,6 +440,8 @@ func sendFileStreaming(conn frameWriter, base *Message, r io.Reader, totalSize i
 				"chunk_bytes": n,
 				"sent_bytes":  sent,
 				"total_bytes": totalSize,
+				"compressed":  isCompressed,
+				"wire_bytes":  len(payload),
 			})
 		}
 		if isFinal {
@@ -447,6 +487,14 @@ func sendFileFramesWithSize(conn frameWriter, base *Message, data []byte, stream
 
 	sent := 0
 	for i, chunk := range chunks {
+		// Try adaptive compression
+		payload := chunk
+		compressed := tryCompress(chunk)
+		isCompressed := compressed != nil
+		if isCompressed {
+			payload = compressed
+		}
+
 		// Send JSON header (tiny — no Data field, no base64)
 		header := &Message{
 			Type:        "file_chunk",
@@ -454,6 +502,7 @@ func sendFileFramesWithSize(conn frameWriter, base *Message, data []byte, stream
 			Seq:         i,
 			Final:       i == total-1,
 			BinaryChunk: true,
+			Compressed:  isCompressed,
 		}
 		headerFrame, err := marshalWithinLimit(header, relayMaxFrameSize)
 		if err != nil {
@@ -462,9 +511,9 @@ func sendFileFramesWithSize(conn frameWriter, base *Message, data []byte, stream
 		if err := conn.WriteMessage(websocket.TextMessage, headerFrame); err != nil {
 			return fmt.Errorf("sending file chunk header %d/%d: %v", i+1, total, err)
 		}
-		// Send raw binary payload (no base64, no JSON wrapping)
-		if len(chunk) > 0 {
-			if err := conn.WriteMessage(websocket.BinaryMessage, chunk); err != nil {
+		// Send binary payload (compressed or raw)
+		if len(payload) > 0 {
+			if err := conn.WriteMessage(websocket.BinaryMessage, payload); err != nil {
 				return fmt.Errorf("sending file chunk data %d/%d: %v", i+1, total, err)
 			}
 		}
@@ -476,6 +525,8 @@ func sendFileFramesWithSize(conn frameWriter, base *Message, data []byte, stream
 				"chunk_bytes": len(chunk),
 				"sent_bytes":  sent,
 				"total_bytes": len(data),
+				"compressed":  isCompressed,
+				"wire_bytes":  len(payload),
 			})
 		}
 	}

@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -48,6 +49,7 @@ type fileReassembly struct {
 	seq        int
 	final      bool
 	fileWriter *os.File // used for scp mode — stream to disk
+	compressed bool     // current binary chunk is gzip-compressed
 }
 
 func runDaemon(token string) {
@@ -430,6 +432,7 @@ func (td *TargetDaemon) handleFileChunk(msg *Message) {
 		r.id = msg.ID
 		r.seq = msg.Seq
 		r.final = msg.Final
+		r.compressed = msg.Compressed
 		td.pendingBinaryChunk = r
 		return
 	}
@@ -452,7 +455,8 @@ func (td *TargetDaemon) handleFileChunk(msg *Message) {
 }
 
 // handleBinaryChunk appends raw binary data to the pending transfer and
-// finalizes if the pending chunk was marked as final.
+// finalizes if the pending chunk was marked as final. Decompresses gzip
+// data if the chunk header had Compressed=true.
 func (td *TargetDaemon) handleBinaryChunk(data []byte) {
 	td.reMu.Lock()
 	r := td.pendingBinaryChunk
@@ -461,6 +465,28 @@ func (td *TargetDaemon) handleBinaryChunk(data []byte) {
 	if r == nil {
 		log.Printf("Received binary chunk with no pending transfer")
 		return
+	}
+	// Decompress if needed
+	if r.compressed {
+		gz, err := gzip.NewReader(bytes.NewReader(data))
+		if err != nil {
+			log.Printf("Failed to create gzip reader for chunk: %v", err)
+			td.dropReassembly(r.id)
+			td.closeFileWriter(r)
+			td.send(&Message{Type: "file_transfer_result", ID: r.id, OK: boolPtr(false), Error: "gzip decompress failed: " + err.Error()})
+			return
+		}
+		decompressed, err := io.ReadAll(gz)
+		gz.Close()
+		if err != nil {
+			log.Printf("Failed to decompress chunk: %v", err)
+			td.dropReassembly(r.id)
+			td.closeFileWriter(r)
+			td.send(&Message{Type: "file_transfer_result", ID: r.id, OK: boolPtr(false), Error: "gzip read failed: " + err.Error()})
+			return
+		}
+		data = decompressed
+		r.compressed = false
 	}
 	td.writeChunkData(r, data)
 	if r.final {

@@ -2,8 +2,10 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -184,6 +186,7 @@ func TestIntegrationChunkedFileTransferViaRelay(t *testing.T) {
 		buffers := make(map[string]*bytes.Buffer)
 		var pendingBinaryID string
 		var pendingBinaryFinal bool
+		var pendingBinaryCompressed bool
 		for {
 			msgType, rawData, err := daemon.ReadMessage()
 			if err != nil {
@@ -194,7 +197,19 @@ func TestIntegrationChunkedFileTransferViaRelay(t *testing.T) {
 				if pendingBinaryID != "" {
 					buf, ok := buffers[pendingBinaryID]
 					if ok {
-						buf.Write(rawData)
+						data := rawData
+						if pendingBinaryCompressed {
+							gz, err := gzip.NewReader(bytes.NewReader(rawData))
+							if err == nil {
+								decomp, err := io.ReadAll(gz)
+								gz.Close()
+								if err == nil {
+									data = decomp
+								}
+							}
+							pendingBinaryCompressed = false
+						}
+						buf.Write(data)
 						if pendingBinaryFinal {
 							got <- buf.Len()
 							delete(buffers, pendingBinaryID)
@@ -224,6 +239,7 @@ func TestIntegrationChunkedFileTransferViaRelay(t *testing.T) {
 					// Data arrives in next binary frame
 					pendingBinaryID = msg.ID
 					pendingBinaryFinal = msg.Final
+					pendingBinaryCompressed = msg.Compressed
 					continue
 				}
 				// Legacy base64 chunk

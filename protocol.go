@@ -43,6 +43,9 @@ type Message struct {
 	// (raw bytes, no base64). The JSON envelope is sent as a preceding TextMessage
 	// with BinaryChunk=true and no Data field; the next frame is binary.
 	BinaryChunk bool `json:"binary_chunk,omitempty"`
+	// Compressed flag: when true, the binary chunk data is gzip-compressed.
+	// The daemon decompresses before writing to disk.
+	Compressed bool `json:"compressed,omitempty"`
 	// Stdin data for command execution (issue #6: pipe stdin to remote command)
 	StdinData string `json:"stdin_data,omitempty"`
 	// Multi-target fields

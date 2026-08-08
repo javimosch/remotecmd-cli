@@ -3,6 +3,7 @@ package main
 import (
 	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"io"
@@ -460,9 +461,26 @@ func TestSendFileFramesChunking(t *testing.T) {
 				t.Errorf("chunk %d final = %v, want %v", i, m.Final, last)
 			}
 			chunkIdx++
-		} else {
-			// Binary data frame
-			got = append(got, frame...)
+			// Next binary frame may be compressed
+			if i+1 < len(w.frames) {
+				binFrame := w.frames[i+1]
+				if m.Compressed {
+					gz, err := gzip.NewReader(bytes.NewReader(binFrame))
+					if err != nil {
+						t.Fatalf("decompress chunk %d: %v", chunkIdx-1, err)
+					}
+					decomp, err := io.ReadAll(gz)
+					gz.Close()
+					if err != nil {
+						t.Fatalf("read decompressed chunk %d: %v", chunkIdx-1, err)
+					}
+					got = append(got, decomp...)
+					i++ // skip the binary frame we just consumed
+				} else {
+					got = append(got, binFrame...)
+					i++
+				}
+			}
 		}
 	}
 	if !bytes.Equal(got, data) {

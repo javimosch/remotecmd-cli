@@ -299,6 +299,7 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 					Seq:         msg.Seq,
 					Final:       msg.Final,
 					BinaryChunk: true,
+					Compressed:  msg.Compressed,
 				}
 				headerBytes, err := json.Marshal(forwardHeader)
 				if err != nil {
