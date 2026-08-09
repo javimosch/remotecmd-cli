@@ -59,6 +59,15 @@ var compressPool = sync.Pool{
 	},
 }
 
+// gzipWriterPool reuses gzip.Writer objects across chunks.
+// gzip.Writer is ~40KB, so avoiding allocation per chunk is important.
+var gzipWriterPool = sync.Pool{
+	New: func() interface{} {
+		gz, _ := gzip.NewWriterLevel(nil, gzip.BestSpeed)
+		return gz
+	},
+}
+
 // tryCompress gzip-compresses data and returns the compressed version if it's
 // smaller than the original by at least 10%. Uses a sample-based heuristic to
 // skip incompressible data quickly without compressing the full chunk.
@@ -75,10 +84,7 @@ func tryCompress(data []byte) []byte {
 	}
 	sample := data[:sampleEnd]
 	var sampleBuf bytes.Buffer
-	sgz, err := gzip.NewWriterLevel(&sampleBuf, gzip.BestSpeed)
-	if err != nil {
-		return nil
-	}
+	sgz, _ := gzip.NewWriterLevel(&sampleBuf, gzip.BestSpeed)
 	sgz.Write(sample)
 	sgz.Close()
 	// If the sample compressed to >= 95% of original, the data is likely
@@ -90,20 +96,24 @@ func tryCompress(data []byte) []byte {
 	// Sample compressed well — compress the full chunk.
 	buf := compressPool.Get().(*bytes.Buffer)
 	buf.Reset()
-	gz, err := gzip.NewWriterLevel(buf, gzip.BestSpeed)
-	if err != nil {
-		compressPool.Put(buf)
-		return nil
-	}
+	gz := gzipWriterPool.Get().(*gzip.Writer)
+	gz.Reset(buf)
 	if _, err := gz.Write(data); err != nil {
 		gz.Close()
+		gzipWriterPool.Put(gz)
 		compressPool.Put(buf)
 		return nil
 	}
 	if err := gz.Close(); err != nil {
+		gz.Reset(nil) // reset for reuse
+		gzipWriterPool.Put(gz)
 		compressPool.Put(buf)
 		return nil
 	}
+	// Put gzip writer back in pool for reuse (after Close, it's safe to reset)
+	gz.Reset(nil)
+	gzipWriterPool.Put(gz)
+
 	if float64(buf.Len()) < float64(len(data))*compressionThreshold {
 		result := make([]byte, buf.Len())
 		copy(result, buf.Bytes())
