@@ -38,17 +38,29 @@ func (c *relayClient) startWriter() {
 		c.writeQueue = make(chan []byte, 64) // buffer up to 64 frames
 		go func() {
 			for frame := range c.writeQueue {
-				// First byte indicates frame type: 0 = text (JSON), 1 = binary
-				msgType := websocket.TextMessage
-				data := frame
-				if len(frame) > 0 && frame[0] == 1 {
-					msgType = websocket.BinaryMessage
-					data = frame[1:]
-				} else if len(frame) > 0 && frame[0] == 0 {
-					data = frame[1:]
-				}
+				// First byte indicates frame type:
+				// 0 = text (JSON), 1 = binary, 2 = header+binary pair
 				c.mu.Lock()
-				err := c.conn.WriteMessage(msgType, data)
+				var err error
+				if len(frame) > 0 && frame[0] == 2 {
+					// Header+binary pair: [2][4-byte hl][header][binary]
+					hl := int(frame[1])<<24 | int(frame[2])<<16 | int(frame[3])<<8 | int(frame[4])
+					header := frame[5 : 5+hl]
+					binary := frame[5+hl:]
+					if err = c.conn.WriteMessage(websocket.TextMessage, header); err == nil {
+						err = c.conn.WriteMessage(websocket.BinaryMessage, binary)
+					}
+				} else {
+					msgType := websocket.TextMessage
+					data := frame
+					if len(frame) > 0 && frame[0] == 1 {
+						msgType = websocket.BinaryMessage
+						data = frame[1:]
+					} else if len(frame) > 0 && frame[0] == 0 {
+						data = frame[1:]
+					}
+					err = c.conn.WriteMessage(msgType, data)
+				}
 				c.mu.Unlock()
 				if err != nil {
 					c.writeErr = err
@@ -125,6 +137,40 @@ func (c *relayClient) sendRawJSON(data []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.conn.WriteMessage(websocket.TextMessage, data)
+}
+
+// sendRawHeaderAndBinary atomically enqueues a JSON header followed by a
+// binary frame. This prevents interleaving with other streams' chunks when
+// multiple parallel streams share the same target's async write queue.
+func (c *relayClient) sendRawHeaderAndBinary(header []byte, binary []byte) error {
+	c.writeQueueMu.Lock()
+	q := c.writeQueue
+	c.writeQueueMu.Unlock()
+	if q != nil {
+		// Format: [2][4-byte header length][header...][binary...]
+		hl := len(header)
+		frame := make([]byte, 1+4+hl+len(binary))
+		frame[0] = 2
+		frame[1] = byte(hl >> 24)
+		frame[2] = byte(hl >> 16)
+		frame[3] = byte(hl >> 8)
+		frame[4] = byte(hl)
+		copy(frame[5:], header)
+		copy(frame[5+hl:], binary)
+		select {
+		case q <- frame:
+			return c.writeErr
+		default:
+			// Queue full — fall back to synchronous send
+		}
+	}
+	// Synchronous: send header then binary
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err := c.conn.WriteMessage(websocket.TextMessage, header); err != nil {
+		return err
+	}
+	return c.conn.WriteMessage(websocket.BinaryMessage, binary)
 }
 
 
@@ -355,15 +401,17 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 			rs.mu.Unlock()
 
 			forward := &Message{
-				Type:        "file_transfer",
-				ID:          reqID,
-				Mode:        msg.Mode,
-				SrcPath:     msg.SrcPath,
-				DstPath:     msg.DstPath,
-				Content:     msg.Content,
-				Chunked:     msg.Chunked,
-				TotalChunks: msg.TotalChunks,
-				TotalSize:   msg.TotalSize,
+				Type:            "file_transfer",
+				ID:              reqID,
+				Mode:            msg.Mode,
+				SrcPath:         msg.SrcPath,
+				DstPath:         msg.DstPath,
+				Content:         msg.Content,
+				Chunked:         msg.Chunked,
+				TotalChunks:     msg.TotalChunks,
+				TotalSize:       msg.TotalSize,
+				ChunkSizeBytes:  msg.ChunkSizeBytes,
+				ParallelStreams: msg.ParallelStreams,
 			}
 			if err := target.send(forward); err != nil {
 				log.Printf("Forward to %s failed: %v", msg.Target, err)
@@ -387,9 +435,10 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			if msg.BinaryChunk {
-				// Binary chunk: forward the JSON header (with patched ID) as raw text,
-				// then set lastBinaryRoute so the next binary frame is forwarded raw.
-				// Patch the ID in the raw JSON bytes directly (avoid full re-marshal).
+				// Binary chunk: the next frame on this connection is the binary
+				// payload. Read it immediately and forward header+binary as a
+				// single atomic unit to prevent interleaving with other parallel
+				// streams sharing the same target's async write queue.
 				forwardHeader := &Message{
 					Type:        "file_chunk",
 					ID:          route.reqID,
@@ -403,15 +452,27 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 					log.Printf("Marshal binary chunk header: %v", err)
 					continue
 				}
-				if err := route.target.sendRawJSON(headerBytes); err != nil {
-					log.Printf("Forward binary chunk header to %s failed: %v", route.target.name, err)
+				// Read the next frame — it must be the binary payload
+				binType, binData, err := conn.ReadMessage()
+				if err != nil {
+					log.Printf("Read binary chunk payload: %v", err)
 					delete(rc.chunkRoutes, msg.ID)
 					rs.cleanupPending(route.reqID)
-					rc.send(errResult(msg.ID, "failed to forward file chunk header: "+err.Error()))
+					rc.send(errResult(msg.ID, "failed to read binary chunk payload: "+err.Error()))
 					continue
 				}
-				// Remember where the next binary frame goes
-				rc.lastBinaryRoute = route
+				if binType != websocket.BinaryMessage {
+					log.Printf("Expected binary frame after chunk header, got text")
+					continue
+				}
+				// Forward header+binary atomically through the write queue
+				if err := route.target.sendRawHeaderAndBinary(headerBytes, binData); err != nil {
+					log.Printf("Forward binary chunk to %s failed: %v", route.target.name, err)
+					delete(rc.chunkRoutes, msg.ID)
+					rs.cleanupPending(route.reqID)
+					rc.send(errResult(msg.ID, "failed to forward file chunk: "+err.Error()))
+					continue
+				}
 				if msg.Final {
 					delete(rc.chunkRoutes, msg.ID)
 				}

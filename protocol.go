@@ -39,6 +39,14 @@ type Message struct {
 	TotalChunks int   `json:"total_chunks,omitempty"`
 	TotalSize   int64 `json:"total_size,omitempty"`
 	Final       bool  `json:"final,omitempty"`
+	// ChunkSizeBytes is the size of each chunk in bytes. Sent in the
+	// file_transfer init so the daemon can seek to the right offset
+	// for parallel-stream writes.
+	ChunkSizeBytes int `json:"chunk_size_bytes,omitempty"`
+	// ParallelStreams indicates how many parallel WebSocket connections
+	// are being used for this transfer. When > 1, the daemon uses
+	// seek-based writes instead of sequential writes.
+	ParallelStreams int `json:"parallel_streams,omitempty"`
 	// Binary chunk flag: when true, Data is sent as a WebSocket BinaryMessage
 	// (raw bytes, no base64). The JSON envelope is sent as a preceding TextMessage
 	// with BinaryChunk=true and no Data field; the next frame is binary.

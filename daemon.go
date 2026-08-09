@@ -41,15 +41,20 @@ type TargetDaemon struct {
 // For scp mode, chunks are streamed directly to disk via fileWriter to avoid
 // buffering the entire file in memory.
 type fileReassembly struct {
-	mode       string
-	src        string
-	dst        string
-	buf        bytes.Buffer // used for rsync (tar) mode
-	id         string
-	seq        int
-	final      bool
-	fileWriter *os.File // used for scp mode — stream to disk
-	compressed bool     // current binary chunk is gzip-compressed
+	mode           string
+	src            string
+	dst            string
+	buf            bytes.Buffer // used for rsync (tar) mode
+	id             string
+	seq            int
+	final          bool
+	fileWriter     *os.File // used for scp mode — stream to disk
+	compressed     bool     // current binary chunk is gzip-compressed
+	chunkSizeBytes int      // size of each chunk for seek-based writes
+	parallel       bool     // parallel stream mode — use seek writes
+	chunksReceived int      // count of chunks written (for parallel completion)
+	totalChunks    int      // total expected chunks (for parallel completion)
+	writeMu        sync.Mutex // protects fileWriter seeks for parallel writes
 }
 
 func runDaemon(token string) {
@@ -394,9 +399,38 @@ func (td *TargetDaemon) beginChunkedTransfer(msg *Message) {
 		td.reassembly = make(map[string]*fileReassembly)
 	}
 	r := &fileReassembly{
-		mode: msg.Mode,
-		src:  msg.SrcPath,
-		dst:  msg.DstPath,
+		mode:           msg.Mode,
+		src:            msg.SrcPath,
+		dst:            msg.DstPath,
+		chunkSizeBytes: msg.ChunkSizeBytes,
+		totalChunks:    msg.TotalChunks,
+	}
+	// Parallel stream mode: multiple connections send chunks for the same file.
+	// Use a shared file writer with seek-based writes, keyed by dst path.
+	if msg.ParallelStreams > 1 && msg.Mode == "scp" {
+		r.parallel = true
+		// Check if we already opened the file for a previous parallel stream
+		// with the same dst path.
+		for _, existing := range td.reassembly {
+			if existing.dst == msg.DstPath && existing.fileWriter != nil && existing.parallel {
+				r.fileWriter = existing.fileWriter
+				break
+			}
+		}
+		if r.fileWriter == nil {
+			// First stream: create and pre-allocate the file
+			f, err := os.Create(msg.DstPath)
+			if err != nil {
+				log.Printf("Failed to create destination file for parallel streaming: %v", err)
+			} else {
+				r.fileWriter = f
+				if msg.TotalSize > 0 {
+					f.Truncate(msg.TotalSize)
+				}
+			}
+		}
+		td.reassembly[msg.ID] = r
+		return
 	}
 	// For scp mode, open the destination file immediately and stream to disk
 	if msg.Mode == "scp" {
@@ -492,12 +526,33 @@ func (td *TargetDaemon) handleBinaryChunk(data []byte) {
 
 // writeChunkData writes chunk data to the file writer (scp streaming) or
 // to the in-memory buffer (rsync/tar mode, or fallback if file open failed).
+// For parallel streams, seeks to seq*chunkSize before writing.
 func (td *TargetDaemon) writeChunkData(r *fileReassembly, data []byte) {
 	if r.fileWriter != nil {
-		if _, err := r.fileWriter.Write(data); err != nil {
-			log.Printf("Failed to write chunk to file: %v", err)
-			// Fall back to buffer
-			r.buf.Write(data)
+		if r.parallel && r.chunkSizeBytes > 0 {
+			// Parallel mode: seek to the right offset for this chunk
+			offset := int64(r.seq) * int64(r.chunkSizeBytes)
+			r.writeMu.Lock()
+			if _, err := r.fileWriter.Seek(offset, 0); err != nil {
+				log.Printf("Failed to seek to offset %d: %v", offset, err)
+				r.writeMu.Unlock()
+				r.buf.Write(data)
+				return
+			}
+			if _, err := r.fileWriter.Write(data); err != nil {
+				log.Printf("Failed to write chunk at offset %d: %v", offset, err)
+				r.writeMu.Unlock()
+				r.buf.Write(data)
+				return
+			}
+			r.writeMu.Unlock()
+		} else {
+			// Sequential mode: just append
+			if _, err := r.fileWriter.Write(data); err != nil {
+				log.Printf("Failed to write chunk to file: %v", err)
+				// Fall back to buffer
+				r.buf.Write(data)
+			}
 		}
 	} else {
 		r.buf.Write(data)
@@ -517,6 +572,15 @@ func (td *TargetDaemon) finishReassembly(r *fileReassembly) {
 	td.dropReassembly(r.id)
 
 	var totalBytes int64
+	if r.parallel {
+		// Parallel mode: don't close the file here — it's shared across streams.
+		// Just send the result for this stream. The file was pre-allocated.
+		// The file will be closed when the daemon process exits or when
+		// a subsequent non-parallel transfer reuses the dst path.
+		log.Printf("Parallel stream completed (id=%s): %s -> %s", r.id, r.src, r.dst)
+		td.send(&Message{Type: "file_transfer_result", ID: r.id, OK: boolPtr(true)})
+		return
+	}
 	if r.fileWriter != nil {
 		// scp streaming mode — file is already written, just close
 		stat, _ := r.fileWriter.Stat()
