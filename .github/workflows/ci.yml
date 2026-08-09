@@ -18,3 +18,20 @@ jobs:
         run: go build -o remotecmd-cli .
       - name: Smoke test
         run: ./remotecmd-cli --help | head -3
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+      - name: Test
+        run: go test -count=1 -timeout 120s -coverprofile=cover.out ./...
+      - name: Coverage gate
+        run: |
+          PCT=$(go tool cover -func=cover.out | tail -1 | awk '{print $NF}' | sed 's/%//')
+          echo "Coverage: ${PCT}%"
+          awk "BEGIN {exit !($PCT < 40)}" && \
+            { echo "FAIL: coverage ${PCT}% < 40% floor"; exit 1; } || \
+            echo "OK: coverage ${PCT}% >= 40% floor"
