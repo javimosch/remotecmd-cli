@@ -19,6 +19,59 @@ type relayClient struct {
 	mu        sync.Mutex
 	chunkRoutes map[string]*chunkRoute // client transfer ID -> forwarding route
 	lastBinaryRoute *chunkRoute // route for the next binary frame (BinaryChunk=true)
+	// Async write queue for file chunk forwarding. When non-nil, binary
+	// frames and chunk headers are sent through the queue instead of
+	// synchronously, allowing the relay read loop to immediately read
+	// the next frame from the client while the previous one is still
+	// being written to the target.
+	writeQueueMu sync.Mutex
+	writeQueue   chan []byte
+	writeErr     error // set by the writer goroutine on failure
+	writeOnce    sync.Once
+}
+
+// startWriter launches a background goroutine that drains the write queue
+// and writes frames to the connection in order. This decouples the relay's
+// read loop from the target's write speed.
+func (c *relayClient) startWriter() {
+	c.writeOnce.Do(func() {
+		c.writeQueue = make(chan []byte, 64) // buffer up to 64 frames
+		go func() {
+			for frame := range c.writeQueue {
+				// First byte indicates frame type: 0 = text (JSON), 1 = binary
+				msgType := websocket.TextMessage
+				data := frame
+				if len(frame) > 0 && frame[0] == 1 {
+					msgType = websocket.BinaryMessage
+					data = frame[1:]
+				} else if len(frame) > 0 && frame[0] == 0 {
+					data = frame[1:]
+				}
+				c.mu.Lock()
+				err := c.conn.WriteMessage(msgType, data)
+				c.mu.Unlock()
+				if err != nil {
+					c.writeErr = err
+					// Drain remaining frames
+					for range c.writeQueue {
+					}
+					return
+				}
+			}
+		}()
+	})
+}
+
+// closeWriter shuts down the async write queue. Called after the transfer
+// result is received, meaning all chunks have been forwarded successfully.
+func (c *relayClient) closeWriter() {
+	c.writeQueueMu.Lock()
+	q := c.writeQueue
+	c.writeQueue = nil
+	c.writeQueueMu.Unlock()
+	if q != nil {
+		close(q)
+	}
 }
 
 func (c *relayClient) send(msg *Message) error {
@@ -28,8 +81,24 @@ func (c *relayClient) send(msg *Message) error {
 }
 
 // sendRawBytes sends a raw binary frame to the client (no JSON wrapping).
-// Used for forwarding binary file chunk data.
+// Used for forwarding binary file chunk data. If an async write queue is
+// active, enqueues the frame instead of blocking.
 func (c *relayClient) sendRawBytes(data []byte) error {
+	c.writeQueueMu.Lock()
+	q := c.writeQueue
+	c.writeQueueMu.Unlock()
+	if q != nil {
+		// Prepend 1 to indicate binary frame
+		frame := make([]byte, len(data)+1)
+		frame[0] = 1
+		copy(frame[1:], data)
+		select {
+		case q <- frame:
+			return c.writeErr
+		default:
+			// Queue full — fall back to synchronous send
+		}
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.conn.WriteMessage(websocket.BinaryMessage, data)
@@ -38,6 +107,21 @@ func (c *relayClient) sendRawBytes(data []byte) error {
 // sendRawJSON sends pre-marshaled JSON bytes as a text frame.
 // Used for forwarding file chunk headers without re-serialization.
 func (c *relayClient) sendRawJSON(data []byte) error {
+	c.writeQueueMu.Lock()
+	q := c.writeQueue
+	c.writeQueueMu.Unlock()
+	if q != nil {
+		// Prepend 0 to indicate text frame
+		frame := make([]byte, len(data)+1)
+		frame[0] = 0
+		copy(frame[1:], data)
+		select {
+		case q <- frame:
+			return c.writeErr
+		default:
+			// Queue full — fall back to synchronous send
+		}
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.conn.WriteMessage(websocket.TextMessage, data)
@@ -290,6 +374,10 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 			// For chunked transfers, remember where the follow-up chunks go.
 			if msg.Chunked {
 				rc.chunkRoutes[msg.ID] = &chunkRoute{target: target, reqID: reqID}
+				// Start async writer on the target so the relay read loop
+				// can immediately read the next chunk from the client while
+				// the previous one is still being written to the target.
+				target.startWriter()
 			}
 
 		case "file_chunk":
@@ -429,6 +517,9 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 			msg.Type = "result"
 			pr.clientConn.send(&msg)
 			log.Printf("File transfer result relayed for id=%s (ok=%v)", msg.ID, msg.OK)
+			// Close the target's async write queue — all chunks have been
+			// received and the daemon has replied.
+			rc.closeWriter()
 
 		case "execute_multi":
 			if len(msg.Targets) == 0 || msg.Cmd == "" {

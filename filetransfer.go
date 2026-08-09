@@ -18,15 +18,16 @@ import (
 
 const (
 	// fileChunkSize is the raw size of each file transfer chunk.
-	// 8 MiB — a balance between fewer round-trips and keeping the
-	// relay's memory usage bounded. Larger chunks (16 MiB) caused
-	// throughput regressions on high-RTT links due to head-of-line
-	// blocking — the relay can't forward chunk N+1 until it finishes
-	// writing chunk N to the target.
-	fileChunkSize = 8 << 20 // 8 MiB
+	// 2 MiB — benchmarked optimal on high-RTT relay links (77ms RTT
+	// through dk1). Smaller chunks allow better pipelining: the relay's
+	// async write queue can forward chunk N to the target while the
+	// client sends chunk N+1. With 8 MiB chunks, only 2 chunks fit in a
+	// 10 MiB transfer, limiting overlap. 2 MiB gives 5 chunks for 10 MiB,
+	// keeping the pipeline full.
+	fileChunkSize = 2 << 20 // 2 MiB
 
 	// relayMaxFrameSize is the maximum WebSocket frame the relay will accept.
-	relayMaxFrameSize = 16 << 20 // 16 MiB (fits 8 MiB binary chunks + overhead)
+	relayMaxFrameSize = 32 << 20 // 32 MiB
 
 	// compressionThreshold is the ratio below which we use the compressed version.
 	compressionThreshold = 0.9
@@ -37,6 +38,19 @@ const (
 	// already-compressed files, encrypted data).
 	compressionSampleSize = 4096
 )
+
+// effectiveChunkSize returns the chunk size, optionally overridden by the
+// RCMD_CHUNK_SIZE environment variable (in bytes) for benchmarking.
+func effectiveChunkSize() int {
+	if s := os.Getenv("RCMD_CHUNK_SIZE"); s != "" {
+		var n int
+		fmt.Sscanf(s, "%d", &n)
+		if n > 0 {
+			return n
+		}
+	}
+	return fileChunkSize
+}
 
 // compressPool reuses gzip writer buffers across chunks to reduce GC pressure.
 var compressPool = sync.Pool{
@@ -206,13 +220,14 @@ func handleFileTransfer(target, src, dst string, stream bool) error {
 	}
 
 	// Send the payload — streaming from disk for single files, from memory for tar
+	chunkSz := effectiveChunkSize()
 	var totalSent int64
 	var totalChunks int
 	if fileReader != nil {
-		totalSent, totalChunks, err = sendFileStreaming(conn, base, fileReader, info.Size(), stream)
+		totalSent, totalChunks, err = sendFileStreaming(conn, base, fileReader, info.Size(), stream, chunkSz)
 	} else {
-		totalChunks = chunkCount(len(tarData), fileChunkSize)
-		err = sendFileFrames(conn, base, tarData, stream)
+		totalChunks = chunkCount(len(tarData), chunkSz)
+		err = sendFileFramesWithSize(conn, base, tarData, stream, chunkSz)
 		totalSent = int64(len(tarData))
 	}
 	if err != nil {
@@ -385,8 +400,8 @@ type frameWriter interface {
 // sendFileStreaming reads a file in chunks and sends each chunk as it's read,
 // avoiding loading the entire file into memory. This overlaps disk I/O with
 // network writes for better throughput on large files.
-func sendFileStreaming(conn frameWriter, base *Message, r io.Reader, totalSize int64, stream bool) (int64, int, error) {
-	totalChunks := chunkCount(int(totalSize), fileChunkSize)
+func sendFileStreaming(conn frameWriter, base *Message, r io.Reader, totalSize int64, stream bool, chunkSize int) (int64, int, error) {
+	totalChunks := chunkCount(int(totalSize), chunkSize)
 
 	// Send init frame
 	init := &Message{
@@ -409,7 +424,7 @@ func sendFileStreaming(conn frameWriter, base *Message, r io.Reader, totalSize i
 		return 0, 0, fmt.Errorf("sending file_transfer init: %v", err)
 	}
 
-	buf := make([]byte, fileChunkSize)
+	buf := make([]byte, chunkSize)
 	var sent int64
 	for i := 0; ; i++ {
 		n, readErr := io.ReadFull(r, buf)
@@ -494,7 +509,7 @@ func sendFileStreaming(conn frameWriter, base *Message, r io.Reader, totalSize i
 // sent as a small JSON header (TextMessage) + a raw binary frame (BinaryMessage),
 // eliminating base64 overhead and JSON re-serialization on the relay.
 func sendFileFrames(conn frameWriter, base *Message, data []byte, stream bool) error {
-	return sendFileFramesWithSize(conn, base, data, stream, fileChunkSize)
+	return sendFileFramesWithSize(conn, base, data, stream, effectiveChunkSize())
 }
 
 // sendFileFramesWithSize is sendFileFrames with an explicit chunk size, used
