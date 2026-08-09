@@ -177,7 +177,7 @@ type RelayServer struct {
 var upgrader = websocket.Upgrader{
 	CheckOrigin:      func(r *http.Request) bool { return true },
 	ReadBufferSize:  1 << 20, // 1 MiB
-	WriteBufferSize: 1 << 20, // 1 MiB
+	WriteBufferSize: 1 << 20,
 }
 
 // NewRelayServer creates a new relay server ready to serve requests.
