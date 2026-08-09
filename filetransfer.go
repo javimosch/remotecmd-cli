@@ -222,14 +222,26 @@ func handleFileTransfer(target, src, dst string, stream bool) error {
 	// Send the payload — streaming from disk for single files, from memory for tar
 	chunkSz := effectiveChunkSize()
 
-	// Parallel streams: auto-enable for files > 5 MiB over scp mode.
+	// Parallel streams: auto-enable for files over scp mode.
 	// Override with RCMD_PARALLEL_STREAMS env var (0 = disabled, N = N streams).
-	// Benchmarks show 1.7x speedup on 50MB files with 3 streams over high-RTT links.
+	// Auto-tuning based on file size (CERN/GridFTP research: 2-10 streams
+	// optimal, linear gain up to ~10 streams, diminishing returns beyond):
+	//   5-20 MiB  → 2 streams
+	//   20-100 MiB → 3 streams
+	//   100+ MiB  → 4 streams
 	parallelStreams := 0
 	if s := os.Getenv("RCMD_PARALLEL_STREAMS"); s != "" {
 		fmt.Sscanf(s, "%d", &parallelStreams)
-	} else if fileReader != nil && mode == "scp" && info.Size() > 5*1024*1024 {
-		parallelStreams = 2 // auto-parallel for files > 5 MiB
+	} else if fileReader != nil && mode == "scp" {
+		size := info.Size()
+		switch {
+		case size > 100*1024*1024:
+			parallelStreams = 4
+		case size > 20*1024*1024:
+			parallelStreams = 3
+		case size > 5*1024*1024:
+			parallelStreams = 2
+		}
 	}
 	if parallelStreams > 1 && fileReader != nil && mode == "scp" {
 		conn.Close()

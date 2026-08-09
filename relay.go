@@ -35,7 +35,7 @@ type relayClient struct {
 // read loop from the target's write speed.
 func (c *relayClient) startWriter() {
 	c.writeOnce.Do(func() {
-		c.writeQueue = make(chan []byte, 64) // buffer up to 64 frames
+		c.writeQueue = make(chan []byte, 128) // buffer up to 128 frames
 		go func() {
 			for frame := range c.writeQueue {
 				// First byte indicates frame type:
