@@ -725,12 +725,51 @@ func (td *TargetDaemon) sendPairIfNeeded() {
 	log.Printf("Pair code sent (will retry until confirmed)")
 }
 
+// pairRetryLoop retries sending pair messages with exponential backoff.
+//
+// The retry interval grows over time to avoid spamming the relay when
+// pairing is never completed (e.g. operator forgot, relay lost the
+// listener, cloud-init hasn't run yet):
+//
+//	0-5 min:   15s intervals  (normal pairing — common case)
+//	5-60 min:  1 min intervals (slow colleague / relay restart)
+//	1-24 hours: 5 min intervals (provisioning, "I'll do it tomorrow")
+//	after 24h: stop, delete pair code, log "expired"
+//
+// Total retries in 24h: ~290 (vs 5,760 with flat 15s).
 func (td *TargetDaemon) pairRetryLoop(stop chan struct{}) {
-	ticker := time.NewTicker(15 * time.Second)
-	defer ticker.Stop()
+	// Use the pair_code file's modification time as the start, so a
+	// daemon restart doesn't reset the 24h expiry clock.
+	start := fileModTime(pairCodePath())
+	if start.IsZero() {
+		start = time.Now()
+	}
 	for {
+		elapsed := time.Since(start)
+
+		// After 24 hours, give up and clean up the stale code.
+		if elapsed > 24*time.Hour {
+			code, _ := loadPairCode()
+			if code != "" {
+				log.Printf("Pair code %s expired after 24h without confirmation — removing", code)
+				deletePairCode()
+			}
+			return
+		}
+
+		// Determine interval based on elapsed time.
+		var interval time.Duration
+		switch {
+		case elapsed < 5*time.Minute:
+			interval = 15 * time.Second
+		case elapsed < time.Hour:
+			interval = time.Minute
+		default:
+			interval = 5 * time.Minute
+		}
+
 		select {
-		case <-ticker.C:
+		case <-time.After(interval):
 			td.sendPairIfNeeded()
 		case <-stop:
 			return
