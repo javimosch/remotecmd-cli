@@ -28,6 +28,12 @@ jobs:
       - name: Build (linux/arm64)
         run: GOOS=linux GOARCH=arm64 go build -ldflags "-s -w" -o remotecmd-cli-linux-arm64 .
 
+      - name: Build (linux/amd64 static, musl/Alpine compatible)
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o remotecmd-cli-linux-amd64-static .
+
+      - name: Build (linux/arm64 static, musl/Alpine compatible)
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "-s -w" -o remotecmd-cli-linux-arm64-static .
+
       - name: Build (darwin/amd64)
         run: GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w" -o remotecmd-cli-darwin-amd64 .
 
@@ -43,6 +49,8 @@ jobs:
           files: |
             remotecmd-cli-linux-amd64
             remotecmd-cli-linux-arm64
+            remotecmd-cli-linux-amd64-static
+            remotecmd-cli-linux-arm64-static
             remotecmd-cli-darwin-amd64
             remotecmd-cli-darwin-arm64
             checksums.txt

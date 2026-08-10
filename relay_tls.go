@@ -17,6 +17,14 @@ func startRelayTLS(port int, certFile, keyFile string) {
 	if rs.secret != "" {
 		log.Printf("Relay secret enabled (RELAY_SECRET)")
 	}
+	if exempt := os.Getenv("RELAY_SECRET_EXEMPT"); exempt != "" {
+		for _, name := range splitCSV(exempt) {
+			rs.secretExempt[name] = true
+		}
+		if len(rs.secretExempt) > 0 {
+			log.Printf("Relay secret exempt: %d target(s)", len(rs.secretExempt))
+		}
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {

@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -213,6 +214,7 @@ type pairListener struct {
 type RelayServer struct {
 	port         int
 	secret       string // if non-empty, clients must send it as Bearer token
+	secretExempt map[string]bool // target names allowed to connect without secret
 	clients      map[string]*relayClient
 	pending      map[string]*pendingRequest
 	pairListeners map[string]*pairListener
@@ -237,6 +239,7 @@ func NewRelayServer() *RelayServer {
 		multiPending:  make(map[string]*multiPendingEntry),
 		subToMulti:    make(map[string]*subTargetInfo),
 		tunnels:       make(map[string]*tunnelSession),
+		secretExempt:  make(map[string]bool),
 	}
 }
 
@@ -257,19 +260,49 @@ func startRelay(port int) {
 	if rs.secret != "" {
 		log.Printf("Relay secret enabled (RELAY_SECRET)")
 	}
+	// Parse exempt list: comma-separated target names allowed without secret
+	if exempt := os.Getenv("RELAY_SECRET_EXEMPT"); exempt != "" {
+		for _, name := range splitCSV(exempt) {
+			rs.secretExempt[name] = true
+		}
+		if len(rs.secretExempt) > 0 {
+			log.Printf("Relay secret exempt: %d target(s)", len(rs.secretExempt))
+		}
+	}
 	if err := rs.Serve(port); err != nil {
 		log.Fatalf("Relay failed: %v", err)
 	}
 }
 
+// splitCSV splits a comma-separated string into trimmed non-empty fields.
+func splitCSV(s string) []string {
+	var out []string
+	for _, f := range strings.Split(s, ",") {
+		f = strings.TrimSpace(f)
+		if f != "" {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
 func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
-	// If relay secret is configured, require it as a Bearer token.
+	// If relay secret is configured, check the Bearer token.
+	// Connections without a valid secret are still allowed to upgrade
+	// if there is an exempt list — they will be rejected on register
+	// unless their target name is exempt.
+	authenticated := true
 	if rs.secret != "" {
 		auth := r.Header.Get("Authorization")
 		if auth != "Bearer "+rs.secret {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			log.Printf("Rejected connection: invalid or missing relay secret")
-			return
+			if len(rs.secretExempt) == 0 {
+				// No exempt list — reject immediately
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				log.Printf("Rejected connection: invalid or missing relay secret")
+				return
+			}
+			// Has exempt list — allow upgrade, check on register
+			authenticated = false
 		}
 	}
 
@@ -334,6 +367,16 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 			if msg.Name == "" || msg.Token == "" {
 				rc.send(&Message{Type: "error", Error: "name and token required"})
 				continue
+			}
+			// If secret is enforced and this connection is unauthenticated,
+			// check if the target name is in the exempt list.
+			if rs.secret != "" && !authenticated {
+				if !rs.secretExempt[msg.Name] {
+					rc.send(&Message{Type: "error", Error: "authentication required: relay secret not provided"})
+					log.Printf("Rejected registration: %s not in exempt list and no secret provided", msg.Name)
+					return
+				}
+				log.Printf("Exempt connection: %s (no secret, whitelisted)", msg.Name)
 			}
 			rs.mu.Lock()
 			if existing, ok := rs.clients[msg.Name]; ok {
