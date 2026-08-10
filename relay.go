@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -211,6 +212,7 @@ type pairListener struct {
 
 type RelayServer struct {
 	port         int
+	secret       string // if non-empty, clients must send it as Bearer token
 	clients      map[string]*relayClient
 	pending      map[string]*pendingRequest
 	pairListeners map[string]*pairListener
@@ -251,12 +253,26 @@ func (rs *RelayServer) Serve(port int) error {
 
 func startRelay(port int) {
 	rs := NewRelayServer()
+	rs.secret = os.Getenv("RELAY_SECRET")
+	if rs.secret != "" {
+		log.Printf("Relay secret enabled (RELAY_SECRET)")
+	}
 	if err := rs.Serve(port); err != nil {
 		log.Fatalf("Relay failed: %v", err)
 	}
 }
 
 func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
+	// If relay secret is configured, require it as a Bearer token.
+	if rs.secret != "" {
+		auth := r.Header.Get("Authorization")
+		if auth != "Bearer "+rs.secret {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			log.Printf("Rejected connection: invalid or missing relay secret")
+			return
+		}
+	}
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("Upgrade error: %v", err)

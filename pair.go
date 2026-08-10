@@ -8,8 +8,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-
-	"github.com/gorilla/websocket"
 )
 
 func handlePairSubcommand(args []string) {
@@ -54,7 +52,7 @@ func handlePairListen(args []string) {
 	}
 
 	u := wsURL(cfg.Relay.URL)
-	conn, _, err := websocket.DefaultDialer.Dial(u, nil)
+	conn, _, err := dialRelay(u)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error connecting to relay: %v\n", err)
 		osExit(ExitConfigError)

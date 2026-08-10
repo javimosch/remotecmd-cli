@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"os"
 	"time"
-
-	"github.com/gorilla/websocket"
 )
 
 func handleExec(target, cmd string, timeout int, stream bool) error {
@@ -30,7 +28,7 @@ func handleExecWithStdin(target, cmd string, timeout int, stream bool, stdinData
 	}
 
 	u := wsURL(cfg.Relay.URL)
-	conn, _, err := websocket.DefaultDialer.Dial(u, nil)
+	conn, _, err := dialRelay(u)
 	if err != nil {
 		return fmt.Errorf("connect to relay: %w", err)
 	}
@@ -131,7 +129,7 @@ func sendToRelay(cfg *Config, msg *Message) (*Message, error) {
 	}
 
 	u := wsURL(cfg.Relay.URL)
-	conn, _, err := websocket.DefaultDialer.Dial(u, nil)
+	conn, _, err := dialRelay(u)
 	if err != nil {
 		return nil, fmt.Errorf("connect to relay: %w", err)
 	}
@@ -218,7 +216,7 @@ func multiExecRaw(resolvedTargets []string, tokens map[string]string, cmd string
 	}
 
 	u := wsURL(cfg.Relay.URL)
-	conn, _, err := websocket.DefaultDialer.Dial(u, nil)
+	conn, _, err := dialRelay(u)
 	if err != nil {
 		return nil, fmt.Errorf("connect to relay: %w", err)
 	}

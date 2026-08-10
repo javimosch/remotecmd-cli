@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 )
 
 // startRelayTLS starts the relay with TLS encryption.
@@ -12,6 +13,10 @@ import (
 func startRelayTLS(port int, certFile, keyFile string) {
 	rs := NewRelayServer()
 	rs.port = port
+	rs.secret = os.Getenv("RELAY_SECRET")
+	if rs.secret != "" {
+		log.Printf("Relay secret enabled (RELAY_SECRET)")
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {

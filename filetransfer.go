@@ -205,7 +205,7 @@ func handleFileTransfer(target, src, dst string, stream bool) error {
 	}
 
 	u := wsURL(cfg.Relay.URL)
-	conn, _, err := wsDialer().Dial(u, nil)
+	conn, _, err := dialRelay(u)
 	if err != nil {
 		return fmt.Errorf("connecting to relay: %v", err)
 	}
@@ -467,7 +467,7 @@ func sendFileParallel(cfg *Config, target, token, src, dst string, totalSize int
 
 	for s := 0; s < numStreams; s++ {
 		go func(streamIdx int) {
-			conn, _, err := wsDialer().Dial(u, nil)
+			conn, _, err := dialRelay(u)
 			if err != nil {
 				resultCh <- streamResult{err: fmt.Errorf("stream %d connect: %v", streamIdx, err)}
 				return

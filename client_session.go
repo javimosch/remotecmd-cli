@@ -22,7 +22,7 @@ type ClientSession struct {
 
 func newClientSession(relayURL string) (*ClientSession, error) {
 	u := wsURL(relayURL)
-	conn, _, err := websocket.DefaultDialer.Dial(u, nil)
+	conn, _, err := dialRelay(u)
 	if err != nil {
 		return nil, fmt.Errorf("connect to relay: %w", err)
 	}

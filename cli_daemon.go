@@ -94,9 +94,17 @@ func handleRelayDaemonStart(args []string) {
 	fs := flag.NewFlagSet("relay daemon start", flag.ExitOnError)
 	port := fs.Int("port", 3032, "relay listen port")
 	bg := fs.Bool("daemon", false, "run in background")
-	tlsCert := fs.String("tls-cert", "", "TLS certificate file (enables HTTPS/WSS)")
-	tlsKey := fs.String("tls-key", "", "TLS private key file")
+	tlsCert := fs.String("tls-cert", "", "TLS certificate file (enables HTTPS/WSS, or set RCMD_TLS_CERT)")
+	tlsKey := fs.String("tls-key", "", "TLS private key file (or set RCMD_TLS_KEY)")
 	fs.Parse(args)
+
+	// Fall back to env vars for TLS cert/key
+	if *tlsCert == "" {
+		*tlsCert = os.Getenv("RCMD_TLS_CERT")
+	}
+	if *tlsKey == "" {
+		*tlsKey = os.Getenv("RCMD_TLS_KEY")
+	}
 
 	if *bg {
 		childArgs := []string{"relay", "daemon", "start", "-port", fmt.Sprintf("%d", *port)}

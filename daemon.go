@@ -95,7 +95,7 @@ func runDaemon(token string) {
 }
 
 func (td *TargetDaemon) run() {
-	conn, _, err := wsDialer().Dial(td.relayURL, nil)
+	conn, _, err := dialRelay(td.relayURL)
 	if err != nil {
 		log.Printf("Connection failed: %v", err)
 		return

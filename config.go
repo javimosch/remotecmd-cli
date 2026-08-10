@@ -17,8 +17,9 @@ type Config struct {
 }
 
 type RelayConfig struct {
-	URL  string `json:"url"`
-	Name string `json:"name"`
+	URL    string `json:"url"`
+	Name   string `json:"name"`
+	Secret string `json:"secret,omitempty"` // relay shared secret (Bearer token)
 }
 
 type TargetConfig struct {
@@ -254,7 +255,17 @@ func setRelay(url, name string) error {
 	if err != nil {
 		return err
 	}
-	cfg.Relay = RelayConfig{URL: url, Name: name}
+	// Preserve existing secret when updating URL/name
+	cfg.Relay = RelayConfig{URL: url, Name: name, Secret: cfg.Relay.Secret}
+	return saveConfig(cfg)
+}
+
+func setRelaySecret(secret string) error {
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	cfg.Relay.Secret = secret
 	return saveConfig(cfg)
 }
 

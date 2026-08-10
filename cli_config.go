@@ -58,6 +58,7 @@ func handleSetRelay(args []string) {
 	fs := flag.NewFlagSet("set-relay", flag.ExitOnError)
 	url := fs.String("url", "", "relay URL (e.g. http://relay.example.com:3032)")
 	name := fs.String("name", "", "this node's name on the relay")
+	secret := fs.String("secret", "", "relay shared secret (Bearer token, or set RELAY_SECRET env var)")
 	fs.Parse(args)
 
 	if *url == "" || *name == "" {
@@ -69,5 +70,14 @@ func handleSetRelay(args []string) {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		osExit(ExitInternal)
 	}
+	if *secret != "" {
+		if err := setRelaySecret(*secret); err != nil {
+			fmt.Fprintf(os.Stderr, "Error saving secret: %v\n", err)
+			osExit(ExitInternal)
+		}
+	}
 	fmt.Printf("Relay configured: %s (as %q)\n", *url, *name)
+	if *secret != "" {
+		fmt.Println("Relay secret saved to config")
+	}
 }

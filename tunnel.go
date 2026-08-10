@@ -50,7 +50,7 @@ func runTunnel(target, localPort, remoteAddr string) error {
 
 	// Connect to relay
 	wsURL := wsURL(cfg.Relay.URL)
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	conn, _, err := dialRelay(wsURL)
 	if err != nil {
 		return fmt.Errorf("connect to relay: %w", err)
 	}

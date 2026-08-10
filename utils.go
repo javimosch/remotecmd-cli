@@ -1,9 +1,12 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
+	"os"
 
 	"github.com/gorilla/websocket"
 )
@@ -34,7 +37,7 @@ var chunkSize = effectiveChunkSize()
 //     kernel autotune) — was slower because autotuning starts small and
 //     takes RTT*packets to grow. Explicit 1 MiB gives immediate full window.
 func wsDialer() *websocket.Dialer {
-	return &websocket.Dialer{
+	d := &websocket.Dialer{
 		ReadBufferSize:  1 << 20, // 1 MiB
 		WriteBufferSize: 1 << 20, // 1 MiB
 		NetDial: func(network, addr string) (net.Conn, error) {
@@ -50,4 +53,36 @@ func wsDialer() *websocket.Dialer {
 			return conn, nil
 		},
 	}
+	// Skip TLS verification if RCMD_TLS_SKIP_VERIFY=1 (for self-signed certs)
+	if os.Getenv("RCMD_TLS_SKIP_VERIFY") == "1" {
+		d.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	}
+	return d
+}
+
+// relaySecret returns the relay shared secret from config or env var.
+// Priority: config.json relay.secret > RELAY_SECRET env var.
+func relaySecret() string {
+	if cfg, err := loadConfig(); err == nil && cfg.Relay.Secret != "" {
+		return cfg.Relay.Secret
+	}
+	return os.Getenv("RELAY_SECRET")
+}
+
+// relayAuthHeaders returns HTTP headers to send when dialing the relay.
+// If a relay secret is configured, it's sent as a Bearer token.
+func relayAuthHeaders() http.Header {
+	secret := relaySecret()
+	if secret == "" {
+		return nil
+	}
+	h := http.Header{}
+	h.Set("Authorization", "Bearer "+secret)
+	return h
+}
+
+// dialRelay connects to the relay at the given URL with the tuned dialer
+// and relay secret (if configured). All relay connections should use this.
+func dialRelay(url string) (*websocket.Conn, *http.Response, error) {
+	return wsDialer().Dial(url, relayAuthHeaders())
 }
