@@ -38,7 +38,41 @@ type githubRelease struct {
 }
 
 // latestReleaseInfo fetches the latest release from GitHub API.
+// It tries `gh api` first (authenticated, 5000 req/hr) and falls back
+// to unauthenticated HTTP (60 req/hr) if gh is not available or fails.
 func latestReleaseInfo() (*githubRelease, error) {
+	if rel, err := latestReleaseViaGH(); err == nil {
+		return rel, nil
+	}
+	return latestReleaseViaHTTP()
+}
+
+// latestReleaseViaGH uses the gh CLI (authenticated) to fetch the release.
+func latestReleaseViaGH() (*githubRelease, error) {
+	ghPath, err := exec.LookPath("gh")
+	if err != nil {
+		return nil, fmt.Errorf("gh not found: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), updateVersionTO)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, ghPath, "api",
+		fmt.Sprintf("repos/%s/%s/releases/latest", githubOwner, githubRepo),
+		"--jq", ".")
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("gh api failed: %v (stderr: %s)", err, strings.TrimSpace(stderr.String()))
+	}
+	var rel githubRelease
+	if err := json.Unmarshal(out, &rel); err != nil {
+		return nil, fmt.Errorf("gh api decode: %v", err)
+	}
+	return &rel, nil
+}
+
+// latestReleaseViaHTTP fetches the release via unauthenticated GitHub API.
+func latestReleaseViaHTTP() (*githubRelease, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", githubOwner, githubRepo)
 	client := &http.Client{Timeout: updateVersionTO}
 	req, err := http.NewRequest("GET", url, nil)
