@@ -8,9 +8,9 @@
 <h1 align="center">remotecmd-cli — Remote execution for your entire fleet</h1>
 
 <p align="center">
-  <b>One binary. Zero open ports. JSON output. Agent-friendly.</b><br>
+  <b>One binary. Zero open ports. JSON output. Speaks MCP.</b><br>
   Execute commands on 1 or 100 machines with a single command.<br>
-  Built for AI agents — structured JSON, deterministic timeouts, zero parsing.
+  Built for AI agents — an MCP server, structured JSON, deterministic timeouts.
 </p>
 
 > WebSocket relay + token auth. NAT-proof. Agent-friendly.
@@ -37,6 +37,28 @@ remotecmd-cli --target myserver --cmd 'uptime'
 ```
 
 **Install:** `curl -sSL https://github.com/javimosch/remotecmd-cli/releases/latest/download/remotecmd-cli-linux-amd64 -o /usr/local/bin/remotecmd-cli && chmod +x /usr/local/bin/remotecmd-cli`
+
+## MCP: let an AI agent drive it
+
+`rcmd mcp` runs a stdio MCP server exposing four tools — `rcmd_list_targets`,
+`rcmd_exec`, `rcmd_cp`, `rcmd_health` — so an agent can operate your machines
+through the same relay you use, with no SSH and no inbound ports.
+
+```json
+{ "mcpServers": { "rcmd": { "command": "remotecmd-cli", "args": ["mcp"] } } }
+```
+
+It speaks the MCP [2026-07-28 revision](https://modelcontextprotocol.io/specification/2026-07-28/changelog)
+— stateless, `server/discover`, per-request `_meta` — and still answers the
+older `initialize` handshake, so clients that have not migrated keep working.
+
+**On credentials:** this repo gives an agent the same token you hold, which
+reaches every target that token reaches, with no expiry. That is fine on a
+machine you trust and for a fleet you own. If you want to hand an agent a
+credential that is scoped to named machines, expires on its own, can be
+read-only, and leaves an audit trail you can read, that is what the
+[hosted relay](https://rcmd.intrane.fr) adds — `rcmd agent-token --targets web1
+--expires 4h` and a revoke command. Self-hosting stays free and unlimited.
 
 ## Why not SSH?
 
