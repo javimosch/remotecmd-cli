@@ -315,6 +315,13 @@ func (rs *RelayServer) unregister(rc *relayClient) {
 		}
 	}
 
+	// Close the async write queue if active. Without this, an interrupted
+	// file transfer leaves the writer goroutine blocked on
+	// `for range c.writeQueue` forever — the channel is never closed and
+	// the goroutine + its 128-frame buffered channel leak (one per
+	// interrupted rcc file transfer).
+	rc.closeWriter()
+
 	log.Printf("Target disconnected: %s", rc.name)
 }
 

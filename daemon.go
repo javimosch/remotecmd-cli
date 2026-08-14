@@ -71,6 +71,20 @@ func runDaemon(token string) {
 }
 
 func (td *TargetDaemon) run() {
+	// Clear any leftover reassembly state from a previous connection.
+	// If a chunked file transfer was interrupted by a disconnect, the
+	// reassembly map still holds entries with open file handles and/or
+	// buffered chunk data. The TargetDaemon struct persists across
+	// reconnections, so without this cleanup those entries leak forever
+	// (one per interrupted file transfer, across reconnects).
+	td.reMu.Lock()
+	for id, r := range td.reassembly {
+		td.closeFileWriter(r)
+		delete(td.reassembly, id)
+	}
+	td.pendingBinaryChunk = nil
+	td.reMu.Unlock()
+
 	conn, _, err := dialRelay(td.relayURL)
 	if err != nil {
 		log.Printf("Connection failed: %v", err)
