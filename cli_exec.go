@@ -6,9 +6,31 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 )
 
-// readPipedStdin returns stdin data if it's piped (not a terminal), nil otherwise.
+// stdinFirstByteWait is how long to wait for the first byte of piped stdin
+// before deciding there is none. Once a byte has arrived the rest is read
+// without a deadline, so a slow producer is only at risk before it writes
+// anything at all.
+var stdinFirstByteWait = 300 * time.Millisecond
+
+// StdinWaitEnv overrides that wait, for a producer whose first byte is slow.
+const StdinWaitEnv = "REMOTECMD_STDIN_WAIT"
+
+// readPipedStdin returns data piped into the process, or nil if there is none.
+//
+// It must never block waiting for stdin that is not coming. "Not a terminal"
+// is not the same as "somebody is about to send me data": an inherited pipe
+// with no writer is the normal shape of stdin under an agent harness, CI,
+// nohup, systemd and cron. Reading it to EOF there waits forever, and because
+// this runs before the request is built, the command never reaches the daemon
+// at all - the tool looks hung rather than failing.
+//
+// ssh has the same input to work with and never lets stdin delay the command:
+// it forwards stdin alongside execution instead of gating on it. remotecmd
+// sends stdin in the request, so it cannot stream - but it can refuse to wait
+// for a first byte that never arrives.
 func readPipedStdin() []byte {
 	stat, err := os.Stdin.Stat()
 	if err != nil {
@@ -17,11 +39,78 @@ func readPipedStdin() []byte {
 	if (stat.Mode() & os.ModeCharDevice) != 0 {
 		return nil // terminal — no piped stdin
 	}
-	data, err := io.ReadAll(os.Stdin)
-	if err != nil {
+	// A regular file or a redirect from one is bounded and already there;
+	// reading it fully cannot hang.
+	if stat.Mode().IsRegular() {
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return nil
+		}
+		return data
+	}
+	return readPipeWithGrace(os.Stdin, stdinWait())
+}
+
+func stdinWait() time.Duration {
+	if raw := os.Getenv(StdinWaitEnv); raw != "" {
+		if d, err := time.ParseDuration(raw); err == nil && d >= 0 {
+			return d
+		}
+	}
+	return stdinFirstByteWait
+}
+
+// readPipeWithGrace reads r fully, but gives up if nothing at all arrives
+// within grace. A negative or zero grace means wait indefinitely, which is
+// what an explicit --stdin asks for.
+func readPipeWithGrace(r io.Reader, grace time.Duration) []byte {
+	type result struct {
+		data []byte
+		err  error
+	}
+	first := make(chan result, 1)
+	rest := make(chan result, 1)
+
+	go func() {
+		// One byte is the whole question: is anybody writing?
+		head := make([]byte, 1)
+		n, err := io.ReadFull(r, head)
+		if n == 0 {
+			first <- result{nil, err}
+			return
+		}
+		first <- result{head[:n], nil}
+		// Somebody is writing, so the rest is worth waiting for however long
+		// it takes - a slow producer is only ambiguous before its first byte.
+		tail, err := io.ReadAll(r)
+		rest <- result{tail, err}
+	}()
+
+	if grace <= 0 {
+		head := <-first
+		if head.data == nil {
+			return nil
+		}
+		tail := <-rest
+		return append(head.data, tail.data...)
+	}
+
+	select {
+	case head := <-first:
+		if head.data == nil {
+			return nil // EOF or error before any data: no stdin
+		}
+		tail := <-rest
+		if tail.err != nil {
+			return head.data
+		}
+		return append(head.data, tail.data...)
+	case <-time.After(grace):
+		// Nobody is writing. The goroutine stays parked on a read that will
+		// end when the process does; abandoning it costs one goroutine and
+		// saves an unbounded wait.
 		return nil
 	}
-	return data
 }
 
 func handleExecFlags(args []string) {
