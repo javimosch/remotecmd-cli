@@ -10,9 +10,6 @@ import (
 // activationKeysPath returns the path to the activation keys file.
 // Lives in ~/.remotecmd/activation-keys.json alongside the relay config.
 func activationKeysPath() string {
-	if override := os.Getenv("RCMD_TEST_CONFIG_DIR"); override != "" {
-		return filepath.Join(override, "activation-keys.json")
-	}
 	return filepath.Join(configDir(), "activation-keys.json")
 }
 

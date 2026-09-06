@@ -28,6 +28,17 @@ type TargetConfig struct {
 }
 
 func configDir() string {
+	// RCMD_CONFIG_DIR allows explicit config directory override.
+	// This is essential on Windows when the daemon runs as SYSTEM
+	// (home dir is C:\Windows\System32\config\systemprofile) but
+	// the config was created by a regular user.
+	if override := os.Getenv("RCMD_CONFIG_DIR"); override != "" {
+		return override
+	}
+	// RCMD_TEST_CONFIG_DIR is kept for backward compatibility with tests.
+	if override := os.Getenv("RCMD_TEST_CONFIG_DIR"); override != "" {
+		return override
+	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".remotecmd")
 }
@@ -295,9 +306,6 @@ func deletePairCode() {
 // --- Activation key (daemon-side, for pairing) ---
 
 func activationKeyPath() string {
-	if override := os.Getenv("RCMD_TEST_CONFIG_DIR"); override != "" {
-		return filepath.Join(override, "activation_key")
-	}
 	return filepath.Join(configDir(), "activation_key")
 }
 

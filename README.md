@@ -100,6 +100,13 @@ curl -sSL https://github.com/javimosch/remotecmd-cli/releases/latest/download/re
   -o /usr/local/bin/remotecmd-cli && chmod +x /usr/local/bin/remotecmd-cli
 ```
 
+**Windows** (PowerShell):
+
+```powershell
+Invoke-WebRequest -Uri "https://github.com/javimosch/remotecmd-cli/releases/latest/download/remotecmd-cli-windows-amd64.exe" `
+  -OutFile "$env:USERPROFILE\remotecmd-cli.exe"
+```
+
 Or build from source:
 
 ```bash
@@ -284,6 +291,37 @@ remotecmd-cli pair                (receives one-liner from you)
 - Pair codes are **one-time use**
 - Daemon auto-starts on boot via systemd user service (falls back to nohup)
 
+### Windows targets
+
+Windows 10/11 is supported. The daemon runs `cmd /c` for command execution (not `sh -c`), so use Windows command syntax:
+
+```cmd
+:: On the Windows target:
+remotecmd-cli.exe set-relay --url http://<relay-host>:3032 --name win-pc
+remotecmd-cli.exe daemon start
+
+:: From your client:
+rcx win-pc "hostname"
+rcx win-pc "whoami"
+rcx win-pc "ver"
+```
+
+**Boot persistence** — install a scheduled task that starts the daemon at system boot as SYSTEM:
+
+```cmd
+:: If the config was created by a regular user, point SYSTEM to it:
+set RCMD_CONFIG_DIR=%USERPROFILE%\.remotecmd
+remotecmd-cli.exe daemon schtasks install
+```
+
+This creates a Windows scheduled task (`remotecmd-daemon`) that:
+- Starts at system boot (no login required)
+- Runs as SYSTEM (survives user logoff)
+- No battery restrictions, no 72h time limit
+- Embeds `RCMD_CONFIG_DIR` in the wrapper so SYSTEM finds the config
+
+Remove with `remotecmd-cli.exe daemon schtasks remove`.
+
 ---
 
 ## Streaming
@@ -466,10 +504,10 @@ DAEMON:
 | Transport | WebSocket (`gorilla/websocket`) |
 | Auth | Token per target (auto-generated) |
 | Persistence | `~/.remotecmd/config.json` |
-| Daemon | PID file + nohup (fallback) |
+| Daemon | systemd (Linux), schtasks (Windows), PID file + nohup (fallback) |
 | Streaming | `StdoutPipe` + `bufio.Scanner`, line-by-line forwarding |
 | Multi-target | Relay-level fan-out with result aggregation |
-| Releases | GitHub Actions → multi-arch binaries (linux/darwin, amd64/arm64) |
+| Releases | GitHub Actions → multi-arch binaries (linux/darwin/windows, amd64/arm64) |
 
 ---
 
@@ -477,10 +515,13 @@ DAEMON:
 
 See [docs/vision.md](docs/vision.md) for the full vision and roadmap.
 
-Upcoming priorities:
-- **v1.3**: Script-friendly exit codes, systemd unit generation
-- **v1.4**: Persistent client connections for faster sequential commands
-- **v1.5**: Optional TLS for relay encryption
+Recent milestones:
+- **v2.4**: Relay shared-secret auth, TLS support, static Alpine binaries, file transfer, tunneling
+- **v2.5**: Windows 10/11 support (cmd.exe execution, schtasks persistence, RCMD_CONFIG_DIR), detached background process, reliable PID checks
+
+Upcoming:
+- Shared core library extraction (cloud + self-hosted from one codebase)
+- Machin/MFL lightweight client for constrained targets
 
 ---
 

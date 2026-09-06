@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -186,14 +185,7 @@ func handlePairAccept(args []string) {
 		return
 	}
 
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "Warning: could not find daemon process (PID", pid, ")")
-		fmt.Fprintln(os.Stderr, "The pair code will be picked up automatically within 15 seconds.")
-		return
-	}
-
-	if err := proc.Signal(syscall.SIGUSR1); err != nil {
+	if err := sendPairSignal(pid); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not signal daemon (PID %d): %v\n", pid, err)
 		fmt.Fprintln(os.Stderr, "The pair code will be picked up automatically within 15 seconds.")
 		return

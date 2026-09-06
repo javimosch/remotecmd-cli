@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-const Version = "2.4.1"
+const Version = "2.5.0"
 
 func main() {
 	if len(os.Args) < 2 {

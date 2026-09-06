@@ -40,6 +40,12 @@ jobs:
       - name: Build (darwin/arm64)
         run: GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w" -o remotecmd-cli-darwin-arm64 .
 
+      - name: Build (windows/amd64)
+        run: CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-s -w" -o remotecmd-cli-windows-amd64.exe .
+
+      - name: Build (windows/arm64)
+        run: CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build -ldflags "-s -w" -o remotecmd-cli-windows-arm64.exe .
+
       - name: Checksums
         run: sha256sum remotecmd-cli-* > checksums.txt
 
@@ -53,5 +59,7 @@ jobs:
             remotecmd-cli-linux-arm64-static
             remotecmd-cli-darwin-amd64
             remotecmd-cli-darwin-arm64
+            remotecmd-cli-windows-amd64.exe
+            remotecmd-cli-windows-arm64.exe
             checksums.txt
           fail_on_unmatched_files: true

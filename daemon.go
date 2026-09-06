@@ -11,10 +11,8 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"os/signal"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -53,15 +51,8 @@ func runDaemon(token string) {
 
 	log.Printf("Connecting to relay at %s as %q", td.relayURL, td.name)
 
-	// Listen for SIGUSR1 — used by "pair accept" to trigger immediate pair code re-check
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGUSR1)
-	go func() {
-		for range sigCh {
-			log.Printf("Received SIGUSR1 — re-checking pair code")
-			td.sendPairIfNeeded()
-		}
-	}()
+	// Listen for pair signal — used by "pair accept" to trigger immediate pair code re-check
+	go listenForPairSignal(td)
 
 	for {
 		td.run()
@@ -207,7 +198,7 @@ func (td *TargetDaemon) executeCommandBuffered(msg *Message) {
 	defer cancel()
 
 	var stdoutBuf, stderrBuf bytes.Buffer
-	cmd := exec.CommandContext(ctx, "sh", "-c", msg.Cmd)
+	cmd := shellCommand(ctx, msg.Cmd)
 	cmd.Stdout = &stdoutBuf
 	cmd.Stderr = &stderrBuf
 
@@ -259,7 +250,7 @@ func (td *TargetDaemon) executeCommandStreaming(msg *Message) {
 		time.Duration(timeout)*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "sh", "-c", msg.Cmd)
+	cmd := shellCommand(ctx, msg.Cmd)
 
 	// Forward stdin data if provided (issue #6)
 	if msg.StdinData != "" {

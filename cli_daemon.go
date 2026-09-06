@@ -156,8 +156,8 @@ func handleDaemonSubcommand(args []string) {
 		handleDaemonStop()
 	case "status":
 		handleDaemonStatus()
-	case "systemd":
-		handleDaemonSystemdSubcommand(args[1:])
+	case persistenceSubcommandName():
+		handleDaemonPersistenceSubcommand(args[1:])
 	default:
 		printDaemonHelp()
 		osExit(ExitConfigError)

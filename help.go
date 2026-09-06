@@ -3,7 +3,7 @@ package main
 import "fmt"
 
 func printHelp() {
-	fmt.Println(`remotecmd-cli — remote command execution via WebSocket relay
+	fmt.Printf(`remotecmd-cli — remote command execution via WebSocket relay
 
 EXECUTE (single target):
   remotecmd-cli --target <name> --cmd <command> [--timeout <s>] [--stream]    Single target (legacy)
@@ -46,7 +46,7 @@ ALIAS:
   rcs - check daemon status on target
   rcc - copy files/dirs: rcc <target> <src> <dst> [--stream]
   rcg - group mgmt: rcg list|create|add|remove|delete
-  rcd - daemon mgmt: rcd start|stop|status|systemd
+  rcd - daemon mgmt: rcd start|stop|status|systemd|schtasks
   rcr - relay mgmt:  rcr start|stop|status|systemd
 
 RELAY (run on relay hub machine):
@@ -63,6 +63,7 @@ DAEMON (run on target machine):
   remotecmd-cli daemon start --token <t> -daemon       Start target daemon (background)
   remotecmd-cli daemon stop                           Stop target daemon
   remotecmd-cli daemon status                         Check target daemon status
+  remotecmd-cli daemon %s install|remove             Install/remove persistent service
 
 PERSISTENT CLIENT:
   remotecmd-cli client                                Interactive session (one JSON command per line)
@@ -82,7 +83,7 @@ MCP SERVER (AI agent integration):
 OTHER:
   remotecmd-cli version    Show version
   remotecmd-cli update     Self-update to latest release [--check] [--force]
-  remotecmd-cli help       Show this help`)
+  remotecmd-cli help       Show this help`, persistenceSubcommandName())
 }
 
 func printRelayHelp() {
@@ -106,13 +107,14 @@ Commands:
 }
 
 func printDaemonHelp() {
-	fmt.Println(`Usage: remotecmd-cli daemon <command>
+	fmt.Printf(`Usage: remotecmd-cli daemon <command>
 
 Commands:
   start [--token <t>] [-daemon]     Start target daemon
   stop                               Stop target daemon
   status                             Check target daemon status
-  systemd install|remove             Install/remove systemd user service`)
+  %s install|remove             Install/remove persistent service
+`, persistenceSubcommandName())
 }
 
 func printGroupHelp() {

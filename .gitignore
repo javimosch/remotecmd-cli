@@ -2,3 +2,4 @@
 *.exe
 .DS_Store
 remotecmd-cli-stripped
+.playwright-cli/
