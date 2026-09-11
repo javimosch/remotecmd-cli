@@ -1,533 +1,197 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>remotecmd-cli — Execute commands on any machine, anywhere</title>
-  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-  <script src="https://cdn.tailwindcss.com"></script>
-  <style>
-    * { box-sizing: border-box; }
-    body { font-family: 'Geist', system-ui, sans-serif; background: #050505; color: #e2e8f0; }
-
-    /* Grain overlay */
-    body::before {
-      content: '';
-      position: fixed;
-      inset: 0;
-      z-index: 50;
-      pointer-events: none;
-      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E");
-      opacity: 0.025;
-    }
-
-    /* Radial glow */
-    .glow-orb {
-      position: fixed;
-      border-radius: 50%;
-      filter: blur(120px);
-      pointer-events: none;
-      z-index: 0;
-    }
-
-    /* Double-bezel card */
-    .bezel-outer {
-      background: rgba(255,255,255,0.03);
-      border: 1px solid rgba(255,255,255,0.08);
-      padding: 6px;
-      border-radius: 1.5rem;
-    }
-    .bezel-inner {
-      background: rgba(255,255,255,0.02);
-      box-shadow: inset 0 1px 1px rgba(255,255,255,0.08);
-      border-radius: calc(1.5rem - 6px);
-      padding: 1.5rem;
-      height: 100%;
-    }
-
-    /* Code block */
-    .code-block {
-      background: rgba(0,0,0,0.5);
-      border: 1px solid rgba(255,255,255,0.06);
-      border-radius: 0.75rem;
-      font-family: 'GeistMono', 'Fira Code', monospace;
-      font-size: 0.8rem;
-      line-height: 1.7;
-      overflow-x: auto;
-    }
-    .code-block .prompt { color: #4ade80; }
-    .code-block .cmd { color: #e2e8f0; }
-    .code-block .flag { color: #818cf8; }
-    .code-block .val { color: #fb923c; }
-    .code-block .comment { color: #374151; }
-    .code-block .output { color: #6ee7b7; }
-
-    /* Nav pill */
-    .nav-pill {
-      background: rgba(255,255,255,0.04);
-      border: 1px solid rgba(255,255,255,0.08);
-      backdrop-filter: blur(24px);
-    }
-
-    /* Eyebrow badge */
-    .eyebrow {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 4px 12px;
-      border-radius: 9999px;
-      font-size: 10px;
-      letter-spacing: 0.18em;
-      font-weight: 500;
-      text-transform: uppercase;
-      border: 1px solid rgba(99,102,241,0.3);
-      background: rgba(99,102,241,0.08);
-      color: #a5b4fc;
-    }
-
-    /* CTA pill button */
-    .btn-primary {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 12px 20px;
-      border-radius: 9999px;
-      background: #4f46e5;
-      color: #fff;
-      font-weight: 500;
-      font-size: 0.875rem;
-      transition: all 0.4s cubic-bezier(0.32,0.72,0,1);
-      border: 1px solid rgba(255,255,255,0.12);
-      position: relative;
-      overflow: hidden;
-    }
-    .btn-primary:hover { background: #4338ca; transform: translateY(-1px); box-shadow: 0 8px 32px rgba(79,70,229,0.35); }
-    .btn-primary:active { transform: scale(0.98); }
-    .btn-primary .btn-icon {
-      width: 26px; height: 26px;
-      background: rgba(255,255,255,0.12);
-      border-radius: 9999px;
-      display: flex; align-items: center; justify-content: center;
-      transition: transform 0.4s cubic-bezier(0.32,0.72,0,1);
-      font-size: 0.75rem;
-    }
-    .btn-primary:hover .btn-icon { transform: translate(2px, -1px) scale(1.05); }
-
-    .btn-secondary {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 12px 20px;
-      border-radius: 9999px;
-      background: rgba(255,255,255,0.05);
-      color: #cbd5e1;
-      font-weight: 500;
-      font-size: 0.875rem;
-      transition: all 0.4s cubic-bezier(0.32,0.72,0,1);
-      border: 1px solid rgba(255,255,255,0.1);
-    }
-    .btn-secondary:hover { background: rgba(255,255,255,0.09); color: #fff; transform: translateY(-1px); }
-
-    /* Feature grid */
-    .bento-grid {
-      display: grid;
-      grid-template-columns: repeat(12, 1fr);
-      gap: 12px;
-    }
-    .col-8 { grid-column: span 8; }
-    .col-4 { grid-column: span 4; }
-    .col-6 { grid-column: span 6; }
-    .col-12 { grid-column: span 12; }
-
-    @media (max-width: 768px) {
-      .col-8, .col-4, .col-6, .col-12 { grid-column: span 12; }
-    }
-
-    /* Scroll reveal */
-    .reveal { opacity: 0; transform: translateY(24px); transition: opacity 0.8s cubic-bezier(0.32,0.72,0,1), transform 0.8s cubic-bezier(0.32,0.72,0,1); }
-    .reveal.visible { opacity: 1; transform: translateY(0); }
-
-    /* Step connector */
-    .step-line {
-      position: absolute;
-      left: 19px;
-      top: 40px;
-      bottom: -16px;
-      width: 1px;
-      background: linear-gradient(to bottom, rgba(99,102,241,0.4), transparent);
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rcmd — Remote execution. No SSH. No ports.</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0a0a0a;color:#e0e0e0;line-height:1.6}
+a{color:#00ff41;text-decoration:none}
+a:hover{text-decoration:underline}
+.nav{display:flex;justify-content:space-between;align-items:center;padding:20px 40px;border-bottom:1px solid #1a1a1a}
+.nav-brand{font-size:20px;font-weight:700;color:#00ff41}
+.nav-brand span{color:#666;font-weight:400}
+.nav-links{display:flex;gap:24px;font-size:14px;color:#999}
+.hero{text-align:center;padding:100px 20px 60px;max-width:700px;margin:0 auto}
+.hero h1{font-size:48px;font-weight:800;margin-bottom:16px;letter-spacing:-0.03em}
+.hero h1 span{color:#00ff41}
+.hero p{font-size:18px;color:#999;margin-bottom:40px}
+.btn{display:inline-block;background:#00ff41;color:#0a0a0a;padding:14px 32px;border-radius:8px;font-weight:600;font-size:16px;margin:0 8px}
+.btn-outline{background:transparent;border:1px solid #333;color:#e0e0e0}
+.section{padding:60px 20px;max-width:900px;margin:0 auto}
+.section h2{font-size:28px;font-weight:700;margin-bottom:32px;text-align:center}
+.features{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:24px}
+.feature{background:#111;border:1px solid #1a1a1a;border-radius:12px;padding:24px}
+.feature h3{font-size:16px;margin-bottom:8px;color:#00ff41}
+.feature p{font-size:13px;color:#666;line-height:1.5}
+.pricing-cards{display:flex;gap:24px;justify-content:center;flex-wrap:wrap}
+.pricing-card{background:#111;border:1px solid #1a1a1a;border-radius:12px;padding:32px;flex:1;min-width:260px;max-width:360px}
+.pricing-card.pro{border-color:#00ff41;position:relative}
+.pricing-card.pro::before{content:'POPULAR';position:absolute;top:-12px;left:50%;transform:translateX(-50%);background:#00ff41;color:#0a0a0a;font-size:11px;font-weight:700;padding:4px 16px;border-radius:999px;letter-spacing:0.05em}
+.pricing-card h3{font-size:18px;margin-bottom:8px}
+.pricing-card .price{font-size:36px;font-weight:800;margin-bottom:4px}
+.pricing-card .price span{font-size:14px;color:#666;font-weight:400}
+.pricing-card .desc{font-size:13px;color:#666;margin-bottom:20px}
+.pricing-card ul{list-style:none;font-size:13px;color:#999}
+.pricing-card ul li{padding:6px 0;border-bottom:1px solid #1a1a1a}
+.pricing-card ul li:last-child{border-bottom:none}
+.faq-item{margin-bottom:24px}
+.faq-item h3{font-size:15px;color:#e0e0e0;margin-bottom:4px}
+.faq-item p{font-size:13px;color:#666}
+.footer{text-align:center;padding:40px;font-size:13px;color:#666;border-top:1px solid #1a1a1a}
+.footer a{color:#999}
+@media(max-width:600px){.hero h1{font-size:32px}.nav{padding:16px 20px;flex-direction:column;gap:12px}}
+</style>
 </head>
-<body class="overflow-x-hidden">
+<body>
 
-  <!-- Background orbs -->
-  <div class="glow-orb w-[600px] h-[600px] bg-indigo-600/20 top-[-200px] left-[-200px]"></div>
-  <div class="glow-orb w-[500px] h-[500px] bg-violet-600/15 top-[40%] right-[-150px]"></div>
-  <div class="glow-orb w-[400px] h-[400px] bg-blue-600/10 bottom-[10%] left-[20%]"></div>
+<nav class=nav>
+<div class=nav-brand>rcmd <span>| remote execution</span></div>
+<div class=nav-links>
+<a href=/#features>Features</a>
+<a href=/#pricing>Pricing</a>
+<a href=/#install>Install</a>
+<a href=/#faq>FAQ</a>
+</div>
+</nav>
 
-  <!-- Nav -->
-  <nav class="fixed top-5 left-0 right-0 z-40 flex justify-center px-4">
-    <div class="nav-pill rounded-full px-5 py-3 flex items-center gap-6">
-      <span class="text-white font-semibold text-sm tracking-tight">remotecmd</span>
-      <div class="w-px h-4 bg-white/10"></div>
-      <a href="https://github.com/javimosch/supercli" target="_blank" class="text-slate-400 hover:text-white text-sm transition-colors">SuperCLI</a>
-      <a href="changelog.html" class="text-slate-400 hover:text-white text-sm transition-colors">Changelog</a>
-      <a href="https://github.com/javimosch/remotecmd-cli" target="_blank" class="text-slate-400 hover:text-white text-sm transition-colors">GitHub</a>
-      <a href="https://ko-fi.com/javimosch" target="_blank" class="text-slate-400 hover:text-white text-sm transition-colors">Support</a>
-      <a href="https://github.com/javimosch/remotecmd-cli/releases/latest" target="_blank" class="btn-primary py-2 px-4 text-xs">
-        Download
-        <span class="btn-icon text-[10px]">↗</span>
-      </a>
-    </div>
-  </nav>
+<section class=hero>
+<h1>Your servers. <span>Your commands.</span><br>No SSH.</h1>
+<p>Execute commands on any machine, anywhere. No open ports, no VPN, no key management. One binary, one relay, zero setup.</p>
+<p style=color:#6b7280;font-size:14px;margin-top:-24px>Built for AI agents — structured JSON output, deterministic timeouts, zero parsing.</p>
+<a href=/#pricing class=btn>Get Started</a>
+<a href=https://github.com/javimosch/remotecmd-cli class='btn btn-outline'>View on GitHub</a>
+</section>
 
-  <!-- Hero -->
-  <section class="relative z-10 min-h-[100dvh] flex flex-col items-center justify-center text-center px-4 pt-24 pb-16">
-    <div class="reveal">
-      <div class="eyebrow mb-6">
-        <span class="w-1.5 h-1.5 rounded-full bg-indigo-400"></span>
-        v1.1.0 — Now with peer pairing
-      </div>
-    </div>
+<section id=features class=section>
+<h2>How it works</h2>
+<div class=features>
+<div class=feature>
+<h3>> Install</h3>
+<p>One curl command installs the daemon on any Linux server. No dependencies, no runtime, no config.</p>
+</div>
+<div class=feature>
+<h3>> Connect</h3>
+<p>The daemon connects out to the relay. Zero inbound ports. Works behind NAT, firewalls, corporate proxies.</p>
+</div>
+<div class=feature>
+<h3>> Execute</h3>
+<p>Run commands from your terminal. JSON output, streaming mode, file transfer, multi-target fan-out.</p>
+</div>
+<div class=feature>
+<h3>> Automate</h3>
+<p>Script it, pipe it, hook it into CI/CD. AI-agent native — every command returns structured JSON. No parsing, no token waste.</p>
+</div>
+</div>
+</section>
 
-    <h1 class="reveal text-5xl md:text-7xl font-bold text-white tracking-tighter leading-[1.05] max-w-4xl" style="transition-delay:80ms">
-      Run commands on<br>
-      <span class="bg-gradient-to-r from-indigo-400 via-violet-400 to-blue-400 bg-clip-text text-transparent">any machine, anywhere</span>
-    </h1>
+<section id=install class=section style=text-align:center>
+<h2>Install in one command</h2>
+<div style=background:#111;border:1px solid #333;border-radius:12px;padding:20px;display:inline-block;text-align:left;max-width:600px;width:100%>
+<code style=font-family:monospace;font-size:13px;color:#e0e0e0;word-break:break-all>
+curl -sSL <span style=color:#00ff41>https://rcmd.intrane.fr/install.sh</span> | sh
+</code>
+</div>
+<p style=color:#666;font-size:13px;margin-top:16px>Installs the <code style=color:#e0e0e0>rcmd</code> CLI — then run <code style=color:#e0e0e0>rcmd signup --email you@company.com</code></p>
+</section>
 
-    <p class="reveal text-slate-400 mt-6 text-lg md:text-xl max-w-xl leading-relaxed" style="transition-delay:160ms">
-      Agent-first remote execution. JSON output, deterministic responses, zero parsing.<br>
-      Built for AI agents via SuperCLI.
-    </p>
+<section id=pricing class=section>
+<h2>Pricing</h2>
+<div class=pricing-cards>
+<div class=pricing-card>
+<h3>Free</h3>
+<div class=price>0<span>/mo</span></div>
+<div class=desc>Self-hosted. Run your own relay on any VPS. <a href=https://github.com/javimosch/remotecmd-cli/blob/main/docs/self-hosting.md style=color:#38bdf8>Setup guide &rarr;</a></div>
+<ul>
+<li>Unlimited targets</li>
+<li>Command execution (exec, cp, multi-target)</li>
+<li>Streaming output, groups, aliases</li>
+<li>Exit codes, JSON output</li>
+<li>Open source (MIT)</li>
+</ul>
+</div>
+<div class='pricing-card pro'>
+<h3>Pro</h3>
+<div class=price>5<span>/mo</span></div>
+<div class=desc>Hosted relay. We run it. You use it. No setup.</div>
+<ul>
+<li>Unlimited targets</li>
+<li>Hosted relay at rcmd.intrane.fr</li>
+<li>Automatic TLS (Let's Encrypt)</li>
+<li>Webhooks — hook into rcmd events</li>
+<li>Email support</li>
+<li>Early access to new features</li>
+</ul>
+</div>
+</div>
+</section>
 
-    <div class="reveal flex flex-wrap gap-3 justify-center mt-10" style="transition-delay:240ms">
-      <a href="https://github.com/javimosch/remotecmd-cli/releases/latest" target="_blank" class="btn-primary">
-        Get remotecmd-cli
-        <span class="btn-icon">↗</span>
-      </a>
-      <a href="https://github.com/javimosch/remotecmd-cli" target="_blank" class="btn-secondary">
-        View on GitHub
-      </a>
-    </div>
+<section id=shipped class=section>
+<h2>Shipped</h2>
+<div class=features>
+<div class=feature>
+<h3>✅ Port Forwarding</h3>
+<p><code>rcmd tunnel</code> — replace <code>ssh -L</code> with one command. Expose remote ports locally through the relay. No VPN, no SSH tunnel.</p>
+</div>
+<div class=feature>
+<h3>✅ Scheduled Commands</h3>
+<p>Run commands on a cron schedule. "Restart nginx every day at 2am" — without setting up cron on each server.</p>
+</div>
+<div class=feature>
+<h3>✅ Team Access</h3>
+<p><code>rcmd team token</code> — share server access with scoped sub-tokens. Admin, operator, viewer roles. Email invites. Audit logs. No dashboard needed.</p>
+</div>
+<div class=feature>
+<h3>✅ Email Alerts</h3>
+<p><code>rcmd cron notify --email you@example.com</code> — get an email when a scheduled command fails. Non-zero exit, target offline, timeout — you know immediately.</p>
+</div>
+<div class=feature>
+<h3>✅ Webhooks <span style="font-size:0.7em;color:#38bdf8">Pro</span></h3>
+<p><code>rcmd webhook add</code> — hook into rcmd events. Get POST callbacks for <code>cron.failed</code>, <code>command.executed</code>, <code>team.invite.accepted</code>. HMAC-SHA256 signed. Build your own integrations.</p>
+</div>
+</div>
+</section>
 
-    <!-- Hero code block -->
-    <div class="reveal mt-14 w-full max-w-2xl" style="transition-delay:320ms">
-      <div class="bezel-outer">
-        <div class="bezel-inner">
-          <div class="flex items-center gap-1.5 mb-4">
-            <span class="w-2.5 h-2.5 rounded-full bg-red-500/60"></span>
-            <span class="w-2.5 h-2.5 rounded-full bg-yellow-500/60"></span>
-            <span class="w-2.5 h-2.5 rounded-full bg-green-500/60"></span>
-            <span class="ml-2 text-xs text-slate-600">terminal</span>
-          </div>
-          <div class="code-block p-4">
-            <div><span class="comment"># Quick start via SuperCLI</span></div>
-            <div><span class="prompt">$</span> <span class="cmd">supercli discover</span> <span class="flag">--intent</span> <span class="val">"remotecmd"</span> <span class="flag">--human</span></div>
-            <div class="mt-2"><span class="prompt">$</span> <span class="cmd">supercli plugins install</span> <span class="val">remotecmd-cli</span></div>
-            <div class="mt-2"><span class="prompt">$</span> <span class="cmd">supercli remotecmd execute</span> <span class="flag">--target</span> <span class="val">myserver</span> <span class="flag">--cmd</span> <span class="val">'uptime'</span></div>
-            <div class="mt-3 output">{ "ok": true, "stdout": "up 42 days...", "duration_ms": 9 }</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
+<section id=faq class=section>
+<h2>FAQ</h2>
 
-  <!-- SuperCLI Quick Start -->
-  <section class="relative z-10 max-w-4xl mx-auto px-4 pb-32">
-    <div class="reveal bezel-outer" style="transition-delay:0ms">
-      <div class="bezel-inner">
-        <div class="flex items-center gap-3 mb-4">
-          <div class="w-10 h-10 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-lg">⚡</div>
-          <h3 class="text-white font-semibold text-lg">Quick start via SuperCLI</h3>
-        </div>
-        <div class="code-block p-4 text-sm">
-          <div><span class="prompt">$</span> <span class="cmd">supercli discover</span> <span class="flag">--intent</span> <span class="val">"remotecmd"</span> <span class="flag">--human</span></div>
-          <div class="mt-2"><span class="prompt">$</span> <span class="cmd">supercli plugins install</span> <span class="val">remotecmd-cli</span></div>
-          <div class="mt-2"><span class="prompt">$</span> <span class="cmd">supercli remotecmd execute</span> <span class="flag">--target</span> <span class="val">myserver</span> <span class="flag">--cmd</span> <span class="val">'uptime'</span></div>
-        </div>
-        <p class="text-slate-500 text-xs mt-3">SuperCLI handles discovery, installation, and execution — no manual setup.</p>
-      </div>
-    </div>
-  </section>
+<div class=faq-item>
+<h3>How is this different from SSH?</h3>
+<p>SSH requires open ports, key management, and VPN for NAT traversal. rcmd's daemon connects out to the relay — no inbound ports, no keys, no VPN. It works from anywhere.</p>
+</div>
 
-  <!-- Features Bento -->
-  <section class="relative z-10 max-w-6xl mx-auto px-4 pb-32">
+<div class=faq-item>
+<h3>What's the difference between Free and Pro?</h3>
+<p>The Free version is fully functional — you run the relay on your own server. Pro is the same software, but we host the relay for you. No infrastructure to manage.</p>
+</div>
 
-    <div class="text-center mb-16 reveal">
-      <div class="eyebrow mb-4">Features</div>
-      <h2 class="text-4xl md:text-5xl font-bold text-white tracking-tighter">Everything you need,<br>nothing you don't</h2>
-    </div>
+<div class=faq-item>
+<h3>Is it secure?</h3>
+<p>Each target has a unique token. All traffic is over WebSocket with optional TLS. The relay never stores commands or output — it just routes traffic. You can also <a href=https://github.com/javimosch/remotecmd-cli/blob/main/docs/self-hosting.md style=color:#38bdf8>self-host the relay</a> for full control.</p>
+</div>
 
-    <div class="bento-grid">
+<div class=faq-item>
+<h3>Can AI agents use it?</h3>
+<p>Yes. rcmd was designed for AI agents. Every command returns structured JSON (stdout, stderr, exit code, duration). No parsing, no guessing, no wasted tokens.</p>
+</div>
 
-      <!-- Pairing — wide -->
-      <div class="col-8 reveal bezel-outer" style="transition-delay:0ms">
-        <div class="bezel-inner flex flex-col justify-between min-h-[280px]">
-          <div>
-            <div class="w-11 h-11 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-xl mb-4">🔗</div>
-            <h3 class="text-xl font-semibold text-white mb-2">One-command pairing</h3>
-            <p class="text-slate-400 text-sm leading-relaxed">Generate a pair code, share one curl one-liner with your peer. They paste it — the binary installs, daemon starts as a systemd service, pair code is sent and destroyed. You're connected.</p>
-          </div>
-          <div class="code-block p-3 mt-4 text-xs">
-            <span class="prompt">$</span> <span class="cmd">remotecmd-cli pair listen</span> <span class="flag">--name</span> <span class="val">friend</span>
-          </div>
-        </div>
-      </div>
+<div class=faq-item>
+<h3>How do I get support?</h3>
+<p>Open an issue on <a href=https://github.com/javimosch/remotecmd-cli>GitHub</a> or email <a href=mailto:arancibiajav@gmail.com>arancibiajav@gmail.com</a>.</p>
+</div>
 
-      <!-- Streaming — narrow -->
-      <div class="col-4 reveal bezel-outer" style="transition-delay:80ms">
-        <div class="bezel-inner flex flex-col justify-between min-h-[280px]">
-          <div>
-            <div class="w-11 h-11 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-xl mb-4">⚡</div>
-            <h3 class="text-xl font-semibold text-white mb-2">Real-time streaming</h3>
-            <p class="text-slate-400 text-sm leading-relaxed">Add <code class="text-indigo-400">--stream</code> to watch stdout/stderr line-by-line. Pipe it locally.</p>
-          </div>
-          <div class="code-block p-3 mt-4 text-xs">
-            <span class="flag">--stream</span> <span class="flag">--timeout</span> <span class="val">300</span>
-          </div>
-        </div>
-      </div>
+<div class=faq-item>
+<h3>Can I cancel anytime?</h3>
+<p>Yes. No contracts, no lock-in. Your daemon keeps working with the free version if you cancel Pro.</p>
+</div>
+</section>
 
-      <!-- No ports -->
-      <div class="col-4 reveal bezel-outer" style="transition-delay:0ms">
-        <div class="bezel-inner flex flex-col min-h-[220px]">
-          <div class="w-11 h-11 rounded-xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center text-xl mb-4">🔒</div>
-          <h3 class="text-xl font-semibold text-white mb-2">Zero inbound ports</h3>
-          <p class="text-slate-400 text-sm leading-relaxed">Target daemons connect <em>out</em> to the relay. Works behind NAT, firewalls, CGNAT — no port forwarding ever.</p>
-        </div>
-      </div>
-
-      <!-- Token auth -->
-      <div class="col-4 reveal bezel-outer" style="transition-delay:80ms">
-        <div class="bezel-inner flex flex-col min-h-[220px]">
-          <div class="w-11 h-11 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-xl mb-4">🔑</div>
-          <h3 class="text-xl font-semibold text-white mb-2">Token auth</h3>
-          <p class="text-slate-400 text-sm leading-relaxed">Each target gets a unique secret token. Commands are only routed when the token matches — no open relays.</p>
-        </div>
-      </div>
-
-      <!-- Single binary -->
-      <div class="col-4 reveal bezel-outer" style="transition-delay:160ms">
-        <div class="bezel-inner flex flex-col min-h-[220px]">
-          <div class="w-11 h-11 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-xl mb-4">📦</div>
-          <h3 class="text-xl font-semibold text-white mb-2">Single static binary</h3>
-          <p class="text-slate-400 text-sm leading-relaxed">One Go binary is client, relay, and daemon. No runtime, no dependencies. Copy and run.</p>
-        </div>
-      </div>
-
-      <!-- JSON output — full width -->
-      <div class="col-12 reveal bezel-outer" style="transition-delay:0ms">
-        <div class="bezel-inner">
-          <div class="flex flex-col md:flex-row gap-8 items-start">
-            <div class="flex-1">
-              <div class="w-11 h-11 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-xl mb-4">📋</div>
-              <h3 class="text-xl font-semibold text-white mb-2">Structured JSON output</h3>
-              <p class="text-slate-400 text-sm leading-relaxed max-w-sm">Every result is a deterministic JSON envelope — stdout, stderr, exit code, duration. Script it, pipe it, parse it with <code class="text-indigo-400">jq</code>.</p>
-            </div>
-            <div class="flex-1 code-block p-4 text-xs">
-              <div><span class="comment">// Buffered result</span></div>
-              <div class="text-slate-300">{</div>
-              <div class="pl-4"><span class="flag">"ok"</span>: <span class="output">true</span>,</div>
-              <div class="pl-4"><span class="flag">"stdout"</span>: <span class="val">"myserver\n"</span>,</div>
-              <div class="pl-4"><span class="flag">"stderr"</span>: <span class="val">""</span>,</div>
-              <div class="pl-4"><span class="flag">"exit_code"</span>: <span class="output">0</span>,</div>
-              <div class="pl-4"><span class="flag">"duration_ms"</span>: <span class="output">8</span></div>
-              <div class="text-slate-300">}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-    </div>
-  </section>
-
-  <!-- Agent-first section -->
-  <section class="relative z-10 max-w-4xl mx-auto px-4 pb-32">
-    <div class="text-center mb-16 reveal">
-      <div class="eyebrow mb-4">Agent-first</div>
-      <h2 class="text-4xl md:text-5xl font-bold text-white tracking-tighter">Built for AI agents</h2>
-      <p class="text-slate-400 mt-4 text-lg">remotecmd-cli is designed as a SuperCLI plugin — agents discover, inspect, and execute it without parsing.</p>
-    </div>
-
-    <div class="bento-grid gap-3">
-      <div class="col-6 reveal bezel-outer" style="transition-delay:0ms">
-        <div class="bezel-inner">
-          <div class="w-11 h-11 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-xl mb-4">📋</div>
-          <h3 class="text-white font-semibold text-lg mb-2">Structured JSON output</h3>
-          <p class="text-slate-400 text-sm leading-relaxed">Every result is a deterministic JSON envelope — stdout, stderr, exit code, duration. No regex, no guessing.</p>
-        </div>
-      </div>
-      <div class="col-6 reveal bezel-outer" style="transition-delay:80ms">
-        <div class="bezel-inner">
-          <div class="w-11 h-11 rounded-xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center text-xl mb-4">🔍</div>
-          <h3 class="text-white font-semibold text-lg mb-2">Self-describing</h3>
-          <p class="text-slate-400 text-sm leading-relaxed">Agents can inspect the full command schema before execution via SuperCLI's <code class="text-indigo-400">inspect</code> command.</p>
-        </div>
-      </div>
-      <div class="col-12 reveal bezel-outer" style="transition-delay:160ms">
-        <div class="bezel-inner">
-          <div class="w-11 h-11 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-xl mb-4">🔗</div>
-          <h3 class="text-white font-semibold text-lg mb-2">SuperCLI integration</h3>
-          <p class="text-slate-400 text-sm leading-relaxed">Install as a SuperCLI plugin with <code class="text-indigo-400">sc plugins install remotecmd-cli</code>. Agents discover it via <code class="text-indigo-400">sc skills search "remote"</code>, inspect capabilities, and execute with <code class="text-indigo-400">sc remotecmd execute</code>.</p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- How it works -->
-  <section class="relative z-10 max-w-4xl mx-auto px-4 pb-32">
-    <div class="text-center mb-16 reveal">
-      <div class="eyebrow mb-4">How it works</div>
-      <h2 class="text-4xl md:text-5xl font-bold text-white tracking-tighter">Three nodes,<br>infinite reach</h2>
-    </div>
-
-    <div class="space-y-4">
-      <!-- Step 1 -->
-      <div class="reveal bezel-outer" style="transition-delay:0ms">
-        <div class="bezel-inner flex items-start gap-5">
-          <div class="relative flex-shrink-0">
-            <div class="w-10 h-10 rounded-xl bg-indigo-500/15 border border-indigo-500/25 flex items-center justify-center text-indigo-400 font-bold text-sm">1</div>
-            <div class="step-line"></div>
-          </div>
-          <div class="flex-1 pb-2">
-            <h3 class="text-white font-semibold text-lg mb-1">Start the relay hub</h3>
-            <p class="text-slate-400 text-sm mb-3">Deploy on any VPS. It's the only machine that needs a public IP or reachable port.</p>
-            <div class="code-block p-3 text-xs">
-              <span class="prompt">$</span> <span class="cmd">remotecmd-cli relay daemon start</span> <span class="flag">--port</span> <span class="val">3032</span> <span class="flag">-daemon</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Step 2 -->
-      <div class="reveal bezel-outer" style="transition-delay:80ms">
-        <div class="bezel-inner flex items-start gap-5">
-          <div class="relative flex-shrink-0">
-            <div class="w-10 h-10 rounded-xl bg-violet-500/15 border border-violet-500/25 flex items-center justify-center text-violet-400 font-bold text-sm">2</div>
-            <div class="step-line"></div>
-          </div>
-          <div class="flex-1 pb-2">
-            <h3 class="text-white font-semibold text-lg mb-1">Pair a machine</h3>
-            <p class="text-slate-400 text-sm mb-3">Generate a pair code and share the one-liner. The remote machine installs, connects, and auto-pairs.</p>
-            <div class="code-block p-3 text-xs">
-              <span class="prompt">$</span> <span class="cmd">remotecmd-cli pair listen</span> <span class="flag">--name</span> <span class="val">myserver</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Step 3 -->
-      <div class="reveal bezel-outer" style="transition-delay:160ms">
-        <div class="bezel-inner flex items-start gap-5">
-          <div class="flex-shrink-0">
-            <div class="w-10 h-10 rounded-xl bg-blue-500/15 border border-blue-500/25 flex items-center justify-center text-blue-400 font-bold text-sm">3</div>
-          </div>
-          <div class="flex-1">
-            <h3 class="text-white font-semibold text-lg mb-1">Run commands</h3>
-            <p class="text-slate-400 text-sm mb-3">Execute anything. Get JSON back. Stream output in real time. Use <code class="text-indigo-400">rcx</code> for speed.</p>
-            <div class="code-block p-3 text-xs space-y-1">
-              <div><span class="prompt">$</span> <span class="cmd">rcx myserver</span> <span class="val">'df -h && uptime'</span></div>
-              <div><span class="prompt">$</span> <span class="cmd">remotecmd-cli</span> <span class="flag">--target</span> <span class="val">myserver</span> <span class="flag">--cmd</span> <span class="val">'npm run build'</span> <span class="flag">--stream</span></div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Install -->
-  <section class="relative z-10 max-w-4xl mx-auto px-4 pb-32">
-    <div class="text-center mb-12 reveal">
-      <div class="eyebrow mb-4">Install</div>
-      <h2 class="text-4xl font-bold text-white tracking-tighter">One line to get started</h2>
-    </div>
-
-    <div class="bento-grid gap-3">
-      <div class="col-6 reveal bezel-outer" style="transition-delay:0ms">
-        <div class="bezel-inner">
-          <p class="text-slate-500 text-xs uppercase tracking-widest mb-3">Linux / amd64</p>
-          <div class="code-block p-3 text-xs">
-            curl -sSL .../remotecmd-cli-linux-amd64 \<br>
-            &nbsp; -o ~/.local/bin/remotecmd-cli<br>
-            chmod +x ~/.local/bin/remotecmd-cli
-          </div>
-        </div>
-      </div>
-      <div class="col-6 reveal bezel-outer" style="transition-delay:80ms">
-        <div class="bezel-inner">
-          <p class="text-slate-500 text-xs uppercase tracking-widest mb-3">macOS / Apple Silicon</p>
-          <div class="code-block p-3 text-xs">
-            curl -sSL .../remotecmd-cli-darwin-arm64 \<br>
-            &nbsp; -o /usr/local/bin/remotecmd-cli<br>
-            chmod +x /usr/local/bin/remotecmd-cli
-          </div>
-        </div>
-      </div>
-      <div class="col-12 reveal bezel-outer" style="transition-delay:160ms">
-        <div class="bezel-inner">
-          <p class="text-slate-500 text-xs uppercase tracking-widest mb-3">Build from source</p>
-          <div class="code-block p-3 text-xs">
-            <span class="prompt">$</span> git clone https://github.com/javimosch/remotecmd-cli.git &amp;&amp; cd remotecmd-cli &amp;&amp; go build -o remotecmd-cli .
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="text-center mt-10 reveal">
-      <a href="https://github.com/javimosch/remotecmd-cli/releases/latest" target="_blank" class="btn-primary text-base px-7 py-3.5">
-        Download latest release
-        <span class="btn-icon">↗</span>
-      </a>
-    </div>
-  </section>
-
-  <!-- Footer -->
-  <footer class="relative z-10 border-t border-white/5 py-12 px-4">
-    <div class="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
-      <div class="flex items-center gap-4">
-        <span class="text-white font-semibold">remotecmd-cli</span>
-        <span class="text-slate-700">·</span>
-        <span class="text-slate-500 text-sm">MIT License</span>
-      </div>
-      <div class="flex items-center gap-6 text-sm">
-        <a href="changelog.html" class="text-slate-500 hover:text-white transition-colors">Changelog</a>
-        <a href="https://github.com/javimosch/remotecmd-cli" target="_blank" class="text-slate-500 hover:text-white transition-colors">GitHub</a>
-        <a href="https://github.com/javimosch/remotecmd-cli/releases/latest" target="_blank" class="text-slate-500 hover:text-white transition-colors">Releases</a>
-        <a href="https://github.com/javimosch/remotecmd-cli/issues" target="_blank" class="text-slate-500 hover:text-white transition-colors">Issues</a>
-      </div>
-      <a href="https://ko-fi.com/javimosch" target="_blank" class="transition-transform hover:scale-105">
-        <img src="https://storage.ko-fi.com/cdn/brandasset/v2/support_me_on_kofi_badge_beige.png" alt="Support me on Ko-fi" class="h-8">
-      </a>
-    </div>
-    <!-- Cloud callout -->
-  <div style="text-align:center;padding:32px 20px;border-top:1px solid rgba(255,255,255,0.06);background:rgba(74,222,128,0.02)">
-    <p style="font-size:13px;color:#6b7280;margin-bottom:8px">☁️ Don't want to run your own relay VPS?</p>
-    <a href="https://rcmd.intrane.fr" style="color:#4ade80;font-size:15px;font-weight:600;text-decoration:none">rcmd.intrane.fr</a>
-    <span style="color:#6b7280;font-size:13px"> — €5/mo, unlimited targets, hosted relay, TLS, zero setup</span>
-  </div>
-
+<footer class=footer>
+<p><a href=https://github.com/javimosch/remotecmd-cli>remotecmd-cli</a> by <a href=mailto:arancibiajav@gmail.com>Javier Leandro Arancibia</a> &middot; MIT licensed &middot; Made in France</p>
+<p style=margin-top:8px;font-size:12px;color:#555>AI agents: <a href=/llms.txt>llms.txt</a> &middot; <a href=/guide>guide</a> &middot; <code>rcmd guide</code></p>
 </footer>
 
-  <script>
-    // Scroll reveal
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach(e => {
-        if (e.isIntersecting) {
-          e.target.classList.add('visible');
-          observer.unobserve(e.target);
-        }
-      });
-    }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
-
-    document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
-
-    // Fix release URL placeholder
-    document.querySelectorAll('a[href*="..."]').forEach(a => {
-      if (a.href.includes('remotecmd-cli-linux-amd64') || a.href.includes('remotecmd-cli-darwin-arm64')) {
-        a.href = 'https://github.com/javimosch/remotecmd-cli/releases/latest';
-      }
-    });
-  </script>
-    <script src="https://chatsnip.intrane.fr/w.js" data-agent="pk_9ed1f21eb2f83328a892103e" defer></script>
+<script src="https://chatsnip.intrane.fr/w.js" data-agent="pk_9ed1f21eb2f83328a892103e" defer></script>
 </body>
 </html>
