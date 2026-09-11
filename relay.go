@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -13,6 +14,9 @@ import (
 
 	"github.com/gorilla/websocket"
 )
+
+//go:embed docs/index.html
+var landingHTML []byte
 
 type pendingRequest struct {
 	serverID   string
@@ -125,6 +129,12 @@ func splitCSV(s string) []string {
 }
 
 func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
+	// Non-WebSocket requests get the landing page (rcmd.intrane.fr)
+	if r.Header.Get("Upgrade") != "websocket" {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(landingHTML)
+		return
+	}
 	// If relay secret is configured, check the Bearer token.
 	// Connections without a valid secret are still allowed to upgrade
 	// if there is an exempt list — they will be rejected on register
