@@ -50,7 +50,7 @@ func (ctx *wsContext) handleExecuteMulti(msg *Message) {
 			continue
 		}
 		token, hasToken := msg.Tokens[targetName]
-		if !hasToken || tgt.token != token {
+		if !hasToken || !tokenEqual(tgt.token, token) {
 			b := false
 			entry.results[targetName] = &Message{
 				Type:  "result",

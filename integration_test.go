@@ -346,40 +346,64 @@ func TestIntegrationDaemonNonZeroExit(t *testing.T) {
 	}
 }
 
-func TestIntegrationRegisterReplacesOld(t *testing.T) {
-	rs, port := startTestRelay(t)
-	defer func() { _ = rs }()
+func TestIntegrationRegisterSameTokenReplacesOld(t *testing.T) {
+	_, port := startTestRelay(t)
+	relay := "http://127.0.0.1:" + fmt.Sprintf("%d", port)
 
-	// First daemon connects
-	d1 := testDaemon(t, "http://127.0.0.1:"+fmt.Sprintf("%d", port), "testbox", "tok1")
+	// A reconnecting daemon (same name + token) takes over the stale socket.
+	d1 := testDaemon(t, relay, "testbox", "tok1")
 	defer d1.Close()
-
-	// Second daemon connects with same name but different token
-	d2 := testDaemon(t, "http://127.0.0.1:"+fmt.Sprintf("%d", port), "testbox", "tok2")
+	d2 := testDaemon(t, relay, "testbox", "tok1")
 	defer d2.Close()
 
-	time.Sleep(50 * time.Millisecond)
+	var evicted Message
+	d1.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if err := d1.ReadJSON(&evicted); err != nil {
+		t.Fatalf("old daemon read: %v", err)
+	}
+	if evicted.Error != "replaced by new connection" {
+		t.Errorf("old daemon got %+v, want replaced notice", evicted)
+	}
+}
 
-	// Client tries to execute with old token — should fail
-	u := wsURL("http://127.0.0.1:" + fmt.Sprintf("%d", port))
-	client, _, err := websocket.DefaultDialer.Dial(u, nil)
+func TestIntegrationRegisterRejectsNameHijack(t *testing.T) {
+	_, port := startTestRelay(t)
+	relay := "http://127.0.0.1:" + fmt.Sprintf("%d", port)
+
+	d1 := testDaemon(t, relay, "testbox", "tok1")
+	defer d1.Close()
+	testDaemonResponder(t, d1, 0, "genuine")
+
+	// An attacker registers the same name with a different token.
+	attacker, _, err := websocket.DefaultDialer.Dial(wsURL(relay), nil)
+	if err != nil {
+		t.Fatalf("attacker dial: %v", err)
+	}
+	defer attacker.Close()
+	attacker.WriteJSON(&Message{Type: "register", Name: "testbox", Token: "evil"})
+	var resp Message
+	attacker.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if err := attacker.ReadJSON(&resp); err != nil {
+		t.Fatalf("attacker read: %v", err)
+	}
+	if resp.Type != "error" || !strings.Contains(resp.Error, "already registered") {
+		t.Fatalf("attacker got %+v, want already-registered error", resp)
+	}
+
+	// The genuine daemon still serves commands under its name.
+	client, _, err := websocket.DefaultDialer.Dial(wsURL(relay), nil)
 	if err != nil {
 		t.Fatalf("client dial: %v", err)
 	}
 	defer client.Close()
-
-	client.WriteJSON(&Message{
-		Type:   "execute",
-		ID:     newID(),
-		Target: "testbox",
-		Token:  "tok1",
-		Cmd:    "echo hi",
-	})
-
+	client.WriteJSON(&Message{Type: "execute", ID: newID(), Target: "testbox", Token: "tok1", Cmd: "echo hi"})
 	var result Message
-	client.ReadJSON(&result)
-	if result.OK != nil && *result.OK {
-		t.Error("expected failure with old token")
+	client.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if err := client.ReadJSON(&result); err != nil {
+		t.Fatalf("client read: %v", err)
+	}
+	if result.OK == nil || !*result.OK || result.Stdout != "genuine" {
+		t.Errorf("result = %+v, want genuine daemon's output", result)
 	}
 }
 

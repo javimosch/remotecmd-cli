@@ -27,7 +27,7 @@ func (rs *RelayServer) handleTunnelOpen(rc *relayClient, msg *Message) {
 		rc.send(&Message{Type: "tunnel_opened", TunnelID: msg.TunnelID, Error: "target not connected: " + msg.Target})
 		return
 	}
-	if target.token != msg.Token {
+	if !tokenEqual(target.token, msg.Token) {
 		rc.send(&Message{Type: "tunnel_opened", TunnelID: msg.TunnelID, Error: "invalid token for target: " + msg.Target})
 		return
 	}

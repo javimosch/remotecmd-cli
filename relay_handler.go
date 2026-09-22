@@ -37,6 +37,15 @@ func (ctx *wsContext) handleRegister(msg *Message) bool {
 	}
 	ctx.rs.mu.Lock()
 	if existing, ok := ctx.rs.clients[msg.Name]; ok {
+		// Only the holder of the name's token may take it over (e.g. a
+		// daemon reconnecting before its stale socket is reaped). Otherwise
+		// anyone reaching the relay could evict a node by reusing its name.
+		if !tokenEqual(existing.token, msg.Token) {
+			ctx.rs.mu.Unlock()
+			ctx.rc.send(&Message{Type: "error", Error: "name already registered: " + msg.Name})
+			log.Printf("Rejected registration: %s already registered with a different token", msg.Name)
+			return true
+		}
 		existing.send(&Message{Type: "error", Error: "replaced by new connection"})
 		delete(ctx.rs.clients, msg.Name)
 	}
@@ -62,7 +71,7 @@ func (ctx *wsContext) handleExecute(msg *Message) {
 		ctx.rc.send(errResult(msg.ID, "target not connected: "+msg.Target))
 		return
 	}
-	if target.token != msg.Token {
+	if !tokenEqual(target.token, msg.Token) {
 		ctx.rc.send(errResult(msg.ID, "invalid token for target: "+msg.Target))
 		return
 	}
@@ -106,7 +115,7 @@ func (ctx *wsContext) handleFileTransfer(msg *Message) {
 		ctx.rc.send(errResult(msg.ID, "target not connected: "+msg.Target))
 		return
 	}
-	if target.token != msg.Token {
+	if !tokenEqual(target.token, msg.Token) {
 		ctx.rc.send(errResult(msg.ID, "invalid token for target: "+msg.Target))
 		return
 	}
@@ -393,7 +402,7 @@ func (ctx *wsContext) handleDisconnect(msg *Message) {
 		ctx.rc.send(&Message{Type: "error", Error: "target not connected: " + msg.Target})
 		return
 	}
-	if target.token != msg.Token {
+	if !tokenEqual(target.token, msg.Token) {
 		ctx.rc.send(&Message{Type: "error", Error: "invalid token for target: " + msg.Target})
 		return
 	}

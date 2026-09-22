@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/subtle"
 	_ "embed"
 	"encoding/json"
 	"fmt"
@@ -64,6 +65,13 @@ type RelayServer struct {
 	subToMulti    map[string]*subTargetInfo
 	tunnels       map[string]*tunnelSession
 	mu           sync.RWMutex
+
+	// Keepalive: the relay pings every connection and drops any that
+	// miss a pong within pongWait, so half-dead sockets (peer rebooted,
+	// NAT expired) free their target name instead of lingering until
+	// the OS notices.
+	pingPeriod time.Duration
+	pongWait   time.Duration
 }
 
 var upgrader = websocket.Upgrader{
@@ -82,6 +90,8 @@ func NewRelayServer() *RelayServer {
 		subToMulti:    make(map[string]*subTargetInfo),
 		tunnels:       make(map[string]*tunnelSession),
 		secretExempt:  make(map[string]bool),
+		pingPeriod:    30 * time.Second,
+		pongWait:      60 * time.Second,
 	}
 }
 
@@ -142,7 +152,7 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 	authenticated := true
 	if rs.secret != "" {
 		auth := r.Header.Get("Authorization")
-		if auth != "Bearer "+rs.secret {
+		if !tokenEqual(auth, "Bearer "+rs.secret) {
 			if len(rs.secretExempt) == 0 {
 				// No exempt list — reject immediately
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
@@ -173,6 +183,29 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 	// unbounded data — clients chunk large file transfers to stay under it.
 	conn.SetReadLimit(relayMaxFrameSize)
 
+	conn.SetReadDeadline(time.Now().Add(rs.pongWait))
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(rs.pongWait))
+		return nil
+	})
+	pingStop := make(chan struct{})
+	defer close(pingStop)
+	go func() {
+		ticker := time.NewTicker(rs.pingPeriod)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				// WriteControl is concurrency-safe — no write lock needed.
+				if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(10*time.Second)); err != nil {
+					return
+				}
+			case <-pingStop:
+				return
+			}
+		}
+	}()
+
 	rc := &relayClient{conn: conn, chunkRoutes: make(map[string]*chunkRoute)}
 	registered := false
 
@@ -194,6 +227,9 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
+		// Any inbound frame proves liveness — a client busy uploading
+		// may not be reading, so it can't answer pings until it's done.
+		conn.SetReadDeadline(time.Now().Add(rs.pongWait))
 
 		// Binary frames are file chunk payloads — forward to the target
 		// identified by the last chunkRoute that has BinaryChunk=true.
@@ -339,4 +375,10 @@ func (rs *RelayServer) cleanupPending(reqID string) {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 	delete(rs.pending, reqID)
+}
+
+// tokenEqual compares secrets in constant time so response timing does not
+// leak how many leading bytes of a guessed token were correct.
+func tokenEqual(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
