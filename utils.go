@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -36,12 +37,23 @@ var chunkSize = effectiveChunkSize()
 //   - SO_SNDBUF/SO_RCVBUF set to 1 MiB: tested without setting them (let
 //     kernel autotune) — was slower because autotuning starts small and
 //     takes RTT*packets to grow. Explicit 1 MiB gives immediate full window.
+//
+// Dials are bounded: without a timeout a connect attempt made while the
+// path is black-holed waits for the OS SYN timeout (~2m20s on Linux), so a
+// daemon stayed offline that long after the network came back. The
+// handshake bound covers a relay that accepts TCP but never answers.
+var (
+	relayDialTimeout      = 10 * time.Second
+	relayHandshakeTimeout = 15 * time.Second
+)
+
 func wsDialer() *websocket.Dialer {
 	d := &websocket.Dialer{
-		ReadBufferSize:  1 << 20, // 1 MiB
-		WriteBufferSize: 1 << 20, // 1 MiB
+		ReadBufferSize:   1 << 20, // 1 MiB
+		WriteBufferSize:  1 << 20, // 1 MiB
+		HandshakeTimeout: relayHandshakeTimeout,
 		NetDial: func(network, addr string) (net.Conn, error) {
-			conn, err := net.Dial(network, addr)
+			conn, err := net.DialTimeout(network, addr, relayDialTimeout)
 			if err != nil {
 				return nil, err
 			}
