@@ -443,6 +443,26 @@ func TestTokenManagement(t *testing.T) {
 	}
 }
 
+func TestLoadTokenTrimsWhitespace(t *testing.T) {
+	_, cleanup := setupTestConfig(t)
+	defer cleanup()
+
+	if err := ensureConfigDir(); err != nil {
+		t.Fatalf("ensureConfigDir: %v", err)
+	}
+	// e.g. `openssl rand -hex 32 > token` leaves a trailing newline
+	if err := os.WriteFile(tokenPath(), []byte("  abc123\r\n"), 0600); err != nil {
+		t.Fatalf("write token: %v", err)
+	}
+	loaded, err := loadToken()
+	if err != nil {
+		t.Fatalf("loadToken: %v", err)
+	}
+	if loaded != "abc123" {
+		t.Errorf("loaded = %q, want %q", loaded, "abc123")
+	}
+}
+
 func TestGenerateToken(t *testing.T) {
 	t1 := generateToken()
 	t2 := generateToken()

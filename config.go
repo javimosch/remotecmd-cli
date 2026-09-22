@@ -333,7 +333,10 @@ func loadToken() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return string(data), nil
+	// Trim so a hand-written token file (echo/openssl add a trailing
+	// newline) matches the token clients were given; otherwise the daemon
+	// registers "tok\n" and every command fails with "invalid token".
+	return strings.TrimSpace(string(data)), nil
 }
 
 func saveToken(token string) error {
