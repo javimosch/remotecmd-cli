@@ -50,7 +50,7 @@ ALIAS:
   rcr - relay mgmt:  rcr start|stop|status|systemd
 
 RELAY (run on relay hub machine):
-  remotecmd-cli relay daemon start [--port 3032]     Start relay hub (foreground)
+  remotecmd-cli relay daemon start [--port 3032] [--host <addr>]  Start relay hub (foreground)
   remotecmd-cli relay daemon start --port 3032 -daemon  Start relay hub (background)
   remotecmd-cli relay daemon stop                    Stop relay hub
   remotecmd-cli relay daemon status                  Check relay hub status
@@ -59,10 +59,10 @@ RELAY (run on relay hub machine):
   remotecmd-cli relay list-keys                      List activation keys (masked)
 
 DAEMON (run on target machine):
-  remotecmd-cli daemon start [--token <t>]            Start target daemon (foreground)
-  remotecmd-cli daemon start --token <t> -daemon       Start target daemon (background)
-  remotecmd-cli daemon stop                           Stop target daemon
-  remotecmd-cli daemon status                         Check target daemon status
+  remotecmd-cli daemon start [--token <t>] [--name <n>]  Start target daemon (foreground)
+  remotecmd-cli daemon start --token <t> -daemon          Start target daemon (background)
+  remotecmd-cli daemon stop [--name <n>]                 Stop target daemon
+  remotecmd-cli daemon status [--name <n>] [--json]      Check target daemon status (--json: exit 3 if stopped)
   remotecmd-cli daemon %s install|remove             Install/remove persistent service
 
 PERSISTENT CLIENT:
@@ -105,19 +105,19 @@ func printRelayDaemonHelp() {
 	fmt.Println(`Usage: remotecmd-cli relay daemon <command>
 
 Commands:
-  start [--port <n>] [-daemon] [--tls-cert <file>] [--tls-key <file>]  Start relay hub
-  stop                                                                  Stop relay hub
-  status                                                                Check relay hub status
-  systemd install|remove                                                Install/remove systemd service`)
+  start [--port <n>] [--host <addr>] [-daemon] [--tls-cert <file>] [--tls-key <file>]  Start relay hub
+  stop                                                                                  Stop relay hub
+  status [--json]                                                                       Check relay hub status
+  systemd install|remove                                                                Install/remove systemd service`)
 }
 
 func printDaemonHelp() {
 	fmt.Printf(`Usage: remotecmd-cli daemon <command>
 
 Commands:
-  start [--token <t>] [-daemon]     Start target daemon
-  stop                               Stop target daemon
-  status                             Check target daemon status
+  start [--token <t>] [--name <n>] [-daemon]   Start target daemon (--name: extra instance)
+  stop [--name <n>]                            Stop target daemon
+  status [--name <n>] [--json]                 Check target daemon status
   %s install|remove             Install/remove persistent service
 `, persistenceSubcommandName())
 }

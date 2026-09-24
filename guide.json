@@ -56,13 +56,13 @@
       "remotecmd-cli pair disconnect --target <name>"
     ],
     "daemon (on targets)": [
-      "remotecmd-cli daemon start [--token <t>] [-daemon]",
-      "remotecmd-cli daemon stop | daemon status",
+      "remotecmd-cli daemon start [--token <t>] [--name <n>] [-daemon]",
+      "remotecmd-cli daemon stop [--name <n>] | daemon status [--name <n>] [--json]",
       "remotecmd-cli daemon systemd install|remove   (schtasks on Windows)"
     ],
     "relay (on the hub)": [
-      "remotecmd-cli relay daemon start [--port 3032] [-daemon] [--tls-cert <f> --tls-key <f>]",
-      "remotecmd-cli relay daemon stop | relay daemon status",
+      "remotecmd-cli relay daemon start [--port 3032] [--host <addr>] [-daemon] [--tls-cert <f> --tls-key <f>]",
+      "remotecmd-cli relay daemon stop | relay daemon status [--json]   (health: GET /_health)",
       "remotecmd-cli relay add-key <k> | remove-key <k> | list-keys"
     ],
     "meta": [
@@ -91,7 +91,7 @@
     "Old daemons lack newer protocol features (for example stdin passthrough). A newer client then fails or hangs against them; upgrade the daemon.",
     "Exit codes are legacy: 1 = remote command failed, 2 = relay unreachable (retry), 3 = bad arguments or config, 4 = internal. Errors are JSON on stderr when stderr is not a terminal (RCMD_ERROR_FORMAT=json|text to force).",
     "A daemon reconnects every 5s; a dead link is noticed within about 60s by both ends via WebSocket pings, and dials give up after 10s.",
-    "Two daemons on one machine need separate config dirs (RCMD_CONFIG_DIR). Their -daemon PID files live at fixed /tmp paths, so run the second one under systemd or in the foreground.",
+    "Two daemons on one machine: to join a second relay give it its own RCMD_CONFIG_DIR; to run under a second name on the same relay use daemon start --name <n>. With -daemon, pass the same --name to daemon stop/status, since each name gets its own PID file.",
     "update verifies the release's sha256 and refuses to install on any doubt (exit 100)."
   ],
   "see_also": ["remotecmd-cli help-json", "remotecmd-cli help", "remotecmd-cli version"]

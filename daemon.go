@@ -31,7 +31,13 @@ type TargetDaemon struct {
 	pendingBinaryChunk *fileReassembly
 }
 
-func runDaemon(token string) {
+// Daemon keepalive timing; vars so tests can shorten them.
+var (
+	daemonPingPeriod = 30 * time.Second
+	daemonPongWait   = 60 * time.Second
+)
+
+func runDaemon(token, nameOverride string) {
 	cfg, err := loadConfig()
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
@@ -39,13 +45,17 @@ func runDaemon(token string) {
 	if cfg.Relay.URL == "" {
 		log.Fatalf("Relay not configured. Run: remotecmd-cli set-relay --url <url> --name <name>")
 	}
-	if cfg.Relay.Name == "" {
+	name := cfg.Relay.Name
+	if nameOverride != "" {
+		name = nameOverride
+	}
+	if name == "" {
 		log.Fatalf("Node name not configured. Run: remotecmd-cli set-relay --url <url> --name <name>")
 	}
 
 	td := &TargetDaemon{
 		relayURL: wsURL(cfg.Relay.URL),
-		name:     cfg.Relay.Name,
+		name:     name,
 		token:    token,
 	}
 
@@ -89,6 +99,35 @@ func (td *TargetDaemon) run() {
 	pairRetryStop := make(chan struct{})
 	defer close(pairRetryStop)
 
+	// Keepalive: ping every daemonPingPeriod; the read deadline is extended
+	// on each pong and on every inbound frame. Detects half-dead connections
+	// (e.g. WiFi drop) where TCP stays ESTABLISHED but the relay already
+	// closed its side — without this, ReadMessage blocks forever and the
+	// daemon never reconnects.
+	pingPeriod, pongWait := daemonPingPeriod, daemonPongWait
+	conn.SetReadDeadline(time.Now().Add(pongWait))
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+	pingStop := make(chan struct{})
+	defer close(pingStop)
+	go func() {
+		ticker := time.NewTicker(pingPeriod)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				// WriteControl is concurrency-safe — no writeMu needed.
+				if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(10*time.Second)); err != nil {
+					return
+				}
+			case <-pingStop:
+				return
+			}
+		}
+	}()
+
 	td.send(&Message{
 		Type:  "register",
 		Name:  td.name,
@@ -105,6 +144,9 @@ func (td *TargetDaemon) run() {
 			}
 			return
 		}
+		// Any inbound frame proves the link is alive (a large cp may queue
+		// the relay's pong behind its data frames).
+		conn.SetReadDeadline(time.Now().Add(pongWait))
 
 		// Binary frames are file chunk payloads — append to the pending reassembly
 		if msgType == websocket.BinaryMessage {

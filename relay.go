@@ -95,24 +95,48 @@ func NewRelayServer() *RelayServer {
 	}
 }
 
+// Serve listens on all interfaces; see ServeOn.
 func (rs *RelayServer) Serve(port int) error {
+	return rs.ServeOn("", port)
+}
+
+// ServeOn listens on host:port. An empty host means all interfaces, which
+// is the relay's default: unlike a local daemon (cli-daemon-spec's loopback
+// default), a relay only works if remote daemons and clients can reach it.
+// Pass a specific address to restrict it (e.g. a Tailscale IP behind a proxy).
+func (rs *RelayServer) ServeOn(host string, port int) error {
 	rs.port = port
+	return http.ListenAndServe(relayListenAddr(host, port), rs.mux())
+}
+
+// mux routes the relay's HTTP surface: health probes and the WebSocket.
+func (rs *RelayServer) mux() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"healthy"}`))
 	})
+	// cli-daemon-spec §2: open, cheap, identifies the process.
+	mux.HandleFunc("/_health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"ok":true,"service":"remotecmd-relay","pid":%d,"version":%q}`, os.Getpid(), Version)
+	})
 	mux.HandleFunc("/", rs.handleWS)
-	return http.ListenAndServe(fmt.Sprintf(":%d", port), mux)
+	return mux
 }
 
-func startRelay(port int) {
+func relayListenAddr(host string, port int) string {
+	return net.JoinHostPort(host, fmt.Sprintf("%d", port))
+}
+
+// newRelayFromEnv builds a relay configured from RELAY_SECRET and
+// RELAY_SECRET_EXEMPT (comma-separated target names allowed without secret).
+func newRelayFromEnv() *RelayServer {
 	rs := NewRelayServer()
 	rs.secret = os.Getenv("RELAY_SECRET")
 	if rs.secret != "" {
 		log.Printf("Relay secret enabled (RELAY_SECRET)")
 	}
-	// Parse exempt list: comma-separated target names allowed without secret
 	if exempt := os.Getenv("RELAY_SECRET_EXEMPT"); exempt != "" {
 		for _, name := range splitCSV(exempt) {
 			rs.secretExempt[name] = true
@@ -121,7 +145,11 @@ func startRelay(port int) {
 			log.Printf("Relay secret exempt: %d target(s)", len(rs.secretExempt))
 		}
 	}
-	if err := rs.Serve(port); err != nil {
+	return rs
+}
+
+func startRelay(host string, port int) {
+	if err := newRelayFromEnv().ServeOn(host, port); err != nil {
 		log.Fatalf("Relay failed: %v", err)
 	}
 }

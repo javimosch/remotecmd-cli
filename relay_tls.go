@@ -2,43 +2,22 @@ package main
 
 import (
 	"crypto/tls"
-	"fmt"
 	"log"
 	"net/http"
-	"os"
 )
 
 // startRelayTLS starts the relay with TLS encryption.
 // certFile and keyFile are paths to PEM-encoded certificate and key files.
-func startRelayTLS(port int, certFile, keyFile string) {
-	rs := NewRelayServer()
+func startRelayTLS(host string, port int, certFile, keyFile string) {
+	rs := newRelayFromEnv()
 	rs.port = port
-	rs.secret = os.Getenv("RELAY_SECRET")
-	if rs.secret != "" {
-		log.Printf("Relay secret enabled (RELAY_SECRET)")
-	}
-	if exempt := os.Getenv("RELAY_SECRET_EXEMPT"); exempt != "" {
-		for _, name := range splitCSV(exempt) {
-			rs.secretExempt[name] = true
-		}
-		if len(rs.secretExempt) > 0 {
-			log.Printf("Relay secret exempt: %d target(s)", len(rs.secretExempt))
-		}
-	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"healthy"}`))
-	})
-	mux.HandleFunc("/", rs.handleWS)
-
-	addr := fmt.Sprintf(":%d", port)
+	addr := relayListenAddr(host, port)
 	log.Printf("Relay listening on %s (TLS)", addr)
 
 	server := &http.Server{
 		Addr:      addr,
-		Handler:   mux,
+		Handler:   rs.mux(),
 		TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12},
 	}
 
