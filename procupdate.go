@@ -201,15 +201,7 @@ func restartProc(p runningProc) restartResult {
 		}
 		return restartResult{p.PID, "reexec", true, "re-executes in place once in-flight commands finish"}
 	case p.Unit != "":
-		// A transient timer runs outside the unit being restarted, so this
-		// command finishes and its result is delivered first.
-		args := []string{"--on-active=2", "--quiet", "--collect", "--unit=remotecmd-restart-" + strconv.Itoa(p.PID)}
-		ctl := []string{"systemctl", "restart", p.Unit}
-		if p.UserUnit {
-			args = append([]string{"--user"}, args...)
-			ctl = []string{"systemctl", "--user", "restart", p.Unit}
-		}
-		out, err := exec.Command("systemd-run", append(args, ctl...)...).CombinedOutput()
+		out, err := exec.Command("systemd-run", restartTimerArgs(p)...).CombinedOutput()
 		if err != nil {
 			return restartResult{p.PID, "systemd", false, fmt.Sprintf("%v: %s", err, strings.TrimSpace(string(out)))}
 		}
@@ -217,6 +209,22 @@ func restartProc(p runningProc) restartResult {
 	}
 	return restartResult{p.PID, "manual", false,
 		"this process predates in-place restart and has no supervisor: restart it once by hand; later updates restart it automatically"}
+}
+
+// restartTimerArgs builds the systemd-run call that restarts p's unit 2s
+// from now. The transient timer runs outside the unit being restarted, so
+// this command finishes and its result is delivered first. AccuracySec is
+// essential: timers default to 1min accuracy, so "2s" fired 32s late on
+// mikavm3.
+func restartTimerArgs(p runningProc) []string {
+	args := []string{"--on-active=2", "--timer-property=AccuracySec=100ms",
+		"--quiet", "--collect", "--unit=remotecmd-restart-" + strconv.Itoa(p.PID)}
+	ctl := []string{"systemctl", "restart", p.Unit}
+	if p.UserUnit {
+		args = append([]string{"--user"}, args...)
+		ctl = []string{"systemctl", "--user", "restart", p.Unit}
+	}
+	return append(args, ctl...)
 }
 
 func handleDaemonUpdate(args []string) { handleProcUpdate("daemon", args) }

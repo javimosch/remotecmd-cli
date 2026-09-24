@@ -76,6 +76,22 @@ func TestSupervisingUnitRequiresMainPID(t *testing.T) {
 	}
 }
 
+func TestRestartTimerArgs(t *testing.T) {
+	sys := strings.Join(restartTimerArgs(runningProc{PID: 7, Unit: "remotecmd-daemon.service"}), " ")
+	usr := strings.Join(restartTimerArgs(runningProc{PID: 7, Unit: "remotecmd.service", UserUnit: true}), " ")
+	for _, a := range []string{sys, usr} {
+		if !strings.Contains(a, "--timer-property=AccuracySec=100ms") || !strings.Contains(a, "--on-active=2") {
+			t.Errorf("restart timer must fire promptly: %s", a)
+		}
+	}
+	if !strings.HasSuffix(sys, "systemctl restart remotecmd-daemon.service") || strings.Contains(sys, "--user") {
+		t.Errorf("system unit args = %s", sys)
+	}
+	if !strings.HasPrefix(usr, "--user ") || !strings.HasSuffix(usr, "systemctl --user restart remotecmd.service") {
+		t.Errorf("user unit args = %s", usr)
+	}
+}
+
 // releaseServing serves the file at binPath as this platform's release
 // asset, with a correct checksums.txt.
 func releaseServing(t *testing.T, version, binPath string) *githubRelease {
