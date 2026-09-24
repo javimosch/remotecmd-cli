@@ -29,6 +29,9 @@ type TargetHealth struct {
 	Hostname  string    `json:"hostname"`   // hostname reported by the target (when up)
 	LatencyMs int64     `json:"latency_ms"` // round-trip latency of the last successful probe
 	Error     string    `json:"error,omitempty"`
+	// Version is the daemon build the target runs: self-reported on
+	// results (daemon_version), else probed via /proc/$PPID/exe.
+	Version string `json:"version,omitempty"`
 }
 
 // HealthCache is the on-disk cache of per-target health probes.
@@ -130,9 +133,42 @@ func pingTargets(targetAliases []string) map[string]TargetHealth {
 			Status:    "up",
 			Hostname:  strings.TrimSpace(r.Stdout),
 			LatencyMs: elapsed,
+			Version:   r.DaemonVersion,
 		}
 	}
+	probeDaemonVersions(results, resolved, tokens, aliasByRelay)
 	return results
+}
+
+// probeDaemonVersions fills in Version for targets that answered but did not
+// self-report one — old daemons, or any daemon behind a relay that predates
+// the daemon_version field. One extra round trip, only for those targets.
+func probeDaemonVersions(results map[string]TargetHealth, resolved []string, tokens map[string]string, aliasByRelay map[string]string) {
+	var need []string
+	for _, relayName := range resolved {
+		if h := results[aliasByRelay[relayName]]; h.Status == "up" && h.Version == "" {
+			need = append(need, relayName)
+		}
+	}
+	if len(need) == 0 {
+		return
+	}
+	msg, err := multiExecRaw(need, tokens, daemonVersionProbe, pingTimeout)
+	if err != nil || msg == nil {
+		return
+	}
+	for _, relayName := range need {
+		r := msg.Results[relayName]
+		if r == nil || r.OK == nil || !*r.OK {
+			continue
+		}
+		if v := parseDaemonVersion(r.Stdout); v != "" {
+			alias := aliasByRelay[relayName]
+			h := results[alias]
+			h.Version = v
+			results[alias] = h
+		}
+	}
 }
 
 // listTargetsSmart prints all configured targets with cached health info,
@@ -176,6 +212,10 @@ func listTargetsSmart(refresh, noHealth, jsonOut bool) error {
 	if len(toProbe) > 0 {
 		fresh := pingTargets(toProbe)
 		for alias, h := range fresh {
+			// Keep the last known version while a node is down or silent.
+			if h.Version == "" {
+				h.Version = cache.Targets[alias].Version
+			}
 			cache.Targets[alias] = h
 		}
 		_ = saveHealthCache(cache)
@@ -196,6 +236,8 @@ func printHealthJSON(cfg *Config, cache *HealthCache, aliasNames []string) error
 		SeenAgo   string `json:"seen_ago,omitempty"`
 		LatencyMs int64  `json:"latency_ms,omitempty"`
 		Error     string `json:"error,omitempty"`
+		Version   string `json:"version,omitempty"`
+		Outdated  bool   `json:"outdated,omitempty"`
 	}
 	out := struct {
 		Targets []targetOut     `json:"targets"`
@@ -213,6 +255,8 @@ func printHealthJSON(cfg *Config, cache *HealthCache, aliasNames []string) error
 			Hostname:  h.Hostname,
 			LatencyMs: h.LatencyMs,
 			Error:     h.Error,
+			Version:   h.Version,
+			Outdated:  versionLess(h.Version, Version),
 		}
 		if !h.LastSeen.IsZero() {
 			entry.SeenAgo = agoString(time.Since(h.LastSeen))
@@ -234,8 +278,8 @@ func printHealthTable(cfg *Config, cache *HealthCache, aliasNames []string) erro
 	if len(aliasNames) == 0 {
 		fmt.Println("No targets configured")
 	} else {
-		fmt.Printf("%-22s %-7s %-18s %s\n", "TARGET", "STATUS", "SEEN", "HOSTNAME")
-		fmt.Printf("%s\n", strings.Repeat("-", 70))
+		fmt.Printf("%-22s %-7s %-18s %-10s %s\n", "TARGET", "STATUS", "SEEN", "VERSION", "HOSTNAME")
+		fmt.Printf("%s\n", strings.Repeat("-", 81))
 		for _, alias := range aliasNames {
 			tgt := cfg.Targets[alias]
 			h := cache.Targets[alias]
@@ -265,8 +309,19 @@ func printHealthTable(cfg *Config, cache *HealthCache, aliasNames []string) erro
 				}
 			}
 
-			fmt.Printf("%-22s %-7s %-18s %s\n", displayName, status, seen, hostname)
+			version := h.Version
+			if version == "" {
+				version = "?"
+			} else if versionLess(version, Version) {
+				version += "*" // older than this client
+			}
+
+			fmt.Printf("%-22s %-7s %-18s %-10s %s\n", displayName, status, seen, version, hostname)
 		}
+	}
+
+	if len(aliasNames) > 0 {
+		fmt.Printf("\nVERSION: * = older than this client (v%s), ? = not reported (Windows/macOS node, or not probed yet)\n", Version)
 	}
 
 	if len(cfg.Groups) > 0 {

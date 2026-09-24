@@ -44,6 +44,7 @@ func handleCP(args []string) {
 		osExit(ExitConfigError)
 	}
 
+	warnIfDaemonTooOld(*target, "cp", "the copy may hang")
 	if err := handleFileTransfer(*target, *src, *dst, *stream); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		osExit(ExitConfigError)

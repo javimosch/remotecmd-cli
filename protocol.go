@@ -64,6 +64,10 @@ type Message struct {
 	// Tunnel fields
 	TunnelID   string `json:"tunnel_id,omitempty"`
 	RemoteAddr string `json:"remote_addr,omitempty"`
+	// DaemonVersion is stamped by the daemon on the results it produces so
+	// clients can see which build each node runs. Relays older than this
+	// field drop it; list-targets then falls back to probing the daemon.
+	DaemonVersion string `json:"daemon_version,omitempty"`
 }
 
 func streamEndOK(id string, exitCode int, durationMs int64) *Message {
@@ -74,6 +78,7 @@ func streamEndOK(id string, exitCode int, durationMs int64) *Message {
 		OK:         &b,
 		ExitCode:   exitCode,
 		DurationMs: durationMs,
+		DaemonVersion: Version,
 	}
 }
 
@@ -84,6 +89,7 @@ func streamEndErr(id, errMsg string) *Message {
 		ID:    id,
 		OK:    &b,
 		Error: errMsg,
+		DaemonVersion: Version,
 	}
 }
 
@@ -97,6 +103,7 @@ func okResult(id, stdout, stderr string, exitCode int, durationMs int64) *Messag
 		Stderr:     stderr,
 		ExitCode:   exitCode,
 		DurationMs: durationMs,
+		DaemonVersion: Version,
 	}
 }
 

@@ -26,6 +26,9 @@ func handleExecWithStdin(target, cmd string, timeout int, stream bool, stdinData
 	if !ok {
 		return fmt.Errorf("unknown target %q. Run: remotecmd-cli add-target --name %s --token <token>", target, target)
 	}
+	if len(stdinData) > 0 {
+		warnIfDaemonTooOld(target, "stdin", "the piped stdin will be ignored")
+	}
 
 	u := wsURL(cfg.Relay.URL)
 	conn, _, err := dialRelay(u)
