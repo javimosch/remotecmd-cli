@@ -165,6 +165,17 @@ func (td *TargetDaemon) run() {
 			// Suppress pair-related errors — daemon retries automatically
 			if strings.HasPrefix(msg.Error, "pair") {
 				// expected while waiting for a listener
+			} else if msg.Error == "replaced by new connection" {
+				// Our own reconnects always use a fresh socket, so a
+				// replacement notice on the live one means another
+				// process registered this name with this token: a
+				// duplicate daemon (e.g. an orphan left by an upgrade).
+				// Newest wins — stop competing instead of idling on a
+				// registration the relay no longer routes to.
+				log.Printf("Another daemon registered as %q with this token and replaced this one (duplicate daemon?). Exiting.", td.name)
+				conn.Close()
+				osExit(ExitConfigError)
+				return
 			} else {
 				log.Printf("Relay error: %s", msg.Error)
 			}

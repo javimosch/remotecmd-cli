@@ -46,6 +46,11 @@ func (ctx *wsContext) handleRegister(msg *Message) bool {
 			log.Printf("Rejected registration: %s already registered with a different token", msg.Name)
 			return true
 		}
+		// Same token: normally a daemon reconnecting before its stale
+		// socket was reaped. If this keeps happening for one name, two
+		// live daemons share it — the addresses tell them apart.
+		log.Printf("Target %s re-registered from %s, replacing live connection from %s (repeats = duplicate daemons)",
+			msg.Name, remoteAddr(ctx.rc), remoteAddr(existing))
 		existing.send(&Message{Type: "error", Error: "replaced by new connection"})
 		delete(ctx.rs.clients, msg.Name)
 	}
@@ -413,4 +418,12 @@ func (ctx *wsContext) handleDisconnect(msg *Message) {
 	}
 	log.Printf("Disconnect forwarded to %s", msg.Target)
 	ctx.rc.send(&Message{Type: "disconnect_confirmed", Target: msg.Target})
+}
+
+// remoteAddr is the peer address of a relay connection, for logs.
+func remoteAddr(rc *relayClient) string {
+	if rc == nil || rc.conn == nil {
+		return "unknown"
+	}
+	return rc.conn.RemoteAddr().String()
 }
