@@ -108,6 +108,7 @@ func handleExecWithStdin(target, cmd string, timeout int, stream bool, stdinData
 
 	select {
 	case result := <-resultCh:
+		noteDaemonVersion(target, result.DaemonVersion)
 		if result.Type == "result" || !stream {
 			out, _ := json.MarshalIndent(result, "", "  ")
 			fmt.Println(string(out))
@@ -273,6 +274,13 @@ func handleMultiExec(targets []string, cmd string, timeout int, format string) e
 	}
 
 	result, err := multiExecRaw(resolvedTargets, tokens, cmd, timeout)
+	if err == nil && result != nil {
+		for i, relayName := range resolvedTargets {
+			if r := result.Results[relayName]; r != nil && i < len(targets) {
+				noteDaemonVersion(targets[i], r.DaemonVersion)
+			}
+		}
+	}
 	if err != nil {
 		return err
 	}

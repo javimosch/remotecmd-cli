@@ -262,8 +262,10 @@ func handleUpdate(args []string) {
 	latestTag := strings.TrimPrefix(rel.TagName, "v")
 	currentTag := Version
 
-	if latestTag == currentTag && !force {
-		fmt.Printf(`{"ok":true,"version":"%s","up_to_date":true}`+"\n", currentTag)
+	// Only move forward: a dev build ahead of the latest release must not
+	// "update" itself back to that older release unless --force.
+	if !versionLess(currentTag, latestTag) && !force {
+		fmt.Printf(`{"ok":true,"version":"%s","latest":"%s","up_to_date":true}`+"\n", currentTag, latestTag)
 		return
 	}
 
@@ -376,7 +378,7 @@ func maybeNudge() {
 			return
 		}
 		latestTag := strings.TrimPrefix(rel.TagName, "v")
-		if latestTag != Version && latestTag != "" {
+		if latestTag != "" && versionLess(Version, latestTag) {
 			fmt.Fprintf(os.Stderr, "[update] a newer remotecmd-cli is available (%s → %s). Run: remotecmd-cli update\n", Version, latestTag)
 		}
 	}()

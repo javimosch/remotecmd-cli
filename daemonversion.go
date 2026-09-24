@@ -60,8 +60,10 @@ func versionNumbers(s string) []int {
 	return nums
 }
 
-// versionLess reports a < b. Unparseable versions compare as not-less, so an
-// unknown version never triggers a warning.
+// versionLess reports a < b with semver ordering: numbers first, then a
+// pre-release ("2.6.0-dev+abc") sorts before its release ("2.6.0"). Build
+// metadata after "+" is ignored. Unparseable versions compare as not-less,
+// so an unknown version never triggers a warning or an update.
 func versionLess(a, b string) bool {
 	x, y := versionNumbers(a), versionNumbers(b)
 	if x == nil || y == nil {
@@ -72,7 +74,14 @@ func versionLess(a, b string) bool {
 			return x[i] < y[i]
 		}
 	}
-	return false
+	return isPrerelease(a) && !isPrerelease(b)
+}
+
+func isPrerelease(v string) bool {
+	if i := strings.Index(v, "+"); i >= 0 {
+		v = v[:i]
+	}
+	return strings.Contains(v, "-")
 }
 
 // knownDaemonVersion returns the last version list-targets recorded for a
@@ -83,6 +92,29 @@ func knownDaemonVersion(alias string) string {
 		return ""
 	}
 	return cache.Targets[alias].Version
+}
+
+// stampVersion marks a daemon-built message with this daemon's version.
+func stampVersion(m *Message) *Message {
+	m.DaemonVersion = Version
+	return m
+}
+
+// noteDaemonVersion records a version a target reported on a normal result,
+// so the cache (and the feature warnings that read it) follow upgrades
+// without waiting for the next health probe. Writes only on change.
+func noteDaemonVersion(alias, v string) {
+	if alias == "" || v == "" {
+		return
+	}
+	cache, err := loadHealthCache()
+	if err != nil || cache.Targets[alias].Version == v {
+		return
+	}
+	h := cache.Targets[alias]
+	h.Version = v
+	cache.Targets[alias] = h
+	_ = saveHealthCache(cache)
 }
 
 // warnOut is where feature warnings go; tests swap it.

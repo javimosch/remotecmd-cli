@@ -23,28 +23,28 @@ jobs:
           go-version: '1.21'
 
       - name: Build (linux/amd64)
-        run: GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o remotecmd-cli-linux-amd64 .
+        run: GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X main.releaseVersion=${GITHUB_REF_NAME#v}" -o remotecmd-cli-linux-amd64 .
 
       - name: Build (linux/arm64)
-        run: GOOS=linux GOARCH=arm64 go build -ldflags "-s -w" -o remotecmd-cli-linux-arm64 .
+        run: GOOS=linux GOARCH=arm64 go build -ldflags "-s -w -X main.releaseVersion=${GITHUB_REF_NAME#v}" -o remotecmd-cli-linux-arm64 .
 
       - name: Build (linux/amd64 static, musl/Alpine compatible)
-        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o remotecmd-cli-linux-amd64-static .
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X main.releaseVersion=${GITHUB_REF_NAME#v}" -o remotecmd-cli-linux-amd64-static .
 
       - name: Build (linux/arm64 static, musl/Alpine compatible)
-        run: CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "-s -w" -o remotecmd-cli-linux-arm64-static .
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "-s -w -X main.releaseVersion=${GITHUB_REF_NAME#v}" -o remotecmd-cli-linux-arm64-static .
 
       - name: Build (darwin/amd64)
-        run: GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w" -o remotecmd-cli-darwin-amd64 .
+        run: GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w -X main.releaseVersion=${GITHUB_REF_NAME#v}" -o remotecmd-cli-darwin-amd64 .
 
       - name: Build (darwin/arm64)
-        run: GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w" -o remotecmd-cli-darwin-arm64 .
+        run: GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -X main.releaseVersion=${GITHUB_REF_NAME#v}" -o remotecmd-cli-darwin-arm64 .
 
       - name: Build (windows/amd64)
-        run: CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-s -w" -o remotecmd-cli-windows-amd64.exe .
+        run: CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-s -w -X main.releaseVersion=${GITHUB_REF_NAME#v}" -o remotecmd-cli-windows-amd64.exe .
 
       - name: Build (windows/arm64)
-        run: CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build -ldflags "-s -w" -o remotecmd-cli-windows-arm64.exe .
+        run: CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build -ldflags "-s -w -X main.releaseVersion=${GITHUB_REF_NAME#v}" -o remotecmd-cli-windows-arm64.exe .
 
       - name: Checksums
         run: sha256sum remotecmd-cli-* > checksums.txt

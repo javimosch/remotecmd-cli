@@ -43,44 +43,44 @@ func (td *TargetDaemon) handleFileTransfer(msg *Message) {
 		// Decode base64 content
 		data, err = base64.StdEncoding.DecodeString(msg.Content)
 		if err != nil {
-			td.send(&Message{Type: "file_transfer_result", ID: msg.ID, OK: boolPtr(false), Error: "failed to decode file content: " + err.Error()})
+			td.send(stampVersion(&Message{Type: "file_transfer_result", ID: msg.ID, OK: boolPtr(false), Error: "failed to decode file content: " + err.Error()}))
 			return
 		}
 
 		// Write file
 		if err := os.WriteFile(msg.DstPath, data, 0644); err != nil {
-			td.send(&Message{Type: "file_transfer_result", ID: msg.ID, OK: boolPtr(false), Error: "failed to write file: " + err.Error()})
+			td.send(stampVersion(&Message{Type: "file_transfer_result", ID: msg.ID, OK: boolPtr(false), Error: "failed to write file: " + err.Error()}))
 			return
 		}
 
 		log.Printf("File transfer succeeded (id=%s): %s -> %s", msg.ID, msg.SrcPath, msg.DstPath)
-		td.send(&Message{Type: "file_transfer_result", ID: msg.ID, OK: boolPtr(true)})
+		td.send(stampVersion(&Message{Type: "file_transfer_result", ID: msg.ID, OK: boolPtr(true)}))
 
 	case "rsync":
 		// Decode base64 content
 		data, err = base64.StdEncoding.DecodeString(msg.Content)
 		if err != nil {
-			td.send(&Message{Type: "file_transfer_result", ID: msg.ID, OK: boolPtr(false), Error: "failed to decode file content: " + err.Error()})
+			td.send(stampVersion(&Message{Type: "file_transfer_result", ID: msg.ID, OK: boolPtr(false), Error: "failed to decode file content: " + err.Error()}))
 			return
 		}
 
 		// Create destination directory if it doesn't exist
 		if err := os.MkdirAll(msg.DstPath, 0755); err != nil {
-			td.send(&Message{Type: "file_transfer_result", ID: msg.ID, OK: boolPtr(false), Error: "failed to create destination directory: " + err.Error()})
+			td.send(stampVersion(&Message{Type: "file_transfer_result", ID: msg.ID, OK: boolPtr(false), Error: "failed to create destination directory: " + err.Error()}))
 			return
 		}
 
 		// Extract tar archive
 		if err := extractTarArchive(data, msg.DstPath); err != nil {
-			td.send(&Message{Type: "file_transfer_result", ID: msg.ID, OK: boolPtr(false), Error: "failed to extract tar archive: " + err.Error()})
+			td.send(stampVersion(&Message{Type: "file_transfer_result", ID: msg.ID, OK: boolPtr(false), Error: "failed to extract tar archive: " + err.Error()}))
 			return
 		}
 
 		log.Printf("Directory sync succeeded (id=%s): %s -> %s", msg.ID, msg.SrcPath, msg.DstPath)
-		td.send(&Message{Type: "file_transfer_result", ID: msg.ID, OK: boolPtr(true)})
+		td.send(stampVersion(&Message{Type: "file_transfer_result", ID: msg.ID, OK: boolPtr(true)}))
 
 	default:
-		td.send(&Message{Type: "file_transfer_result", ID: msg.ID, OK: boolPtr(false), Error: "unknown file transfer mode: " + msg.Mode})
+		td.send(stampVersion(&Message{Type: "file_transfer_result", ID: msg.ID, OK: boolPtr(false), Error: "unknown file transfer mode: " + msg.Mode}))
 		return
 	}
 }
@@ -149,7 +149,7 @@ func (td *TargetDaemon) handleFileChunk(msg *Message) {
 	r, ok := td.reassembly[msg.ID]
 	td.reMu.Unlock()
 	if !ok {
-		td.send(&Message{Type: "file_transfer_result", ID: msg.ID, OK: boolPtr(false), Error: "received chunk for unknown transfer"})
+		td.send(stampVersion(&Message{Type: "file_transfer_result", ID: msg.ID, OK: boolPtr(false), Error: "received chunk for unknown transfer"}))
 		return
 	}
 
@@ -168,7 +168,7 @@ func (td *TargetDaemon) handleFileChunk(msg *Message) {
 	if err != nil {
 		td.dropReassembly(msg.ID)
 		td.closeFileWriter(r)
-		td.send(&Message{Type: "file_transfer_result", ID: msg.ID, OK: boolPtr(false), Error: "failed to decode chunk: " + err.Error()})
+		td.send(stampVersion(&Message{Type: "file_transfer_result", ID: msg.ID, OK: boolPtr(false), Error: "failed to decode chunk: " + err.Error()}))
 		return
 	}
 	td.writeChunkData(r, data)
@@ -199,7 +199,7 @@ func (td *TargetDaemon) handleBinaryChunk(data []byte) {
 			log.Printf("Failed to create gzip reader for chunk: %v", err)
 			td.dropReassembly(r.id)
 			td.closeFileWriter(r)
-			td.send(&Message{Type: "file_transfer_result", ID: r.id, OK: boolPtr(false), Error: "gzip decompress failed: " + err.Error()})
+			td.send(stampVersion(&Message{Type: "file_transfer_result", ID: r.id, OK: boolPtr(false), Error: "gzip decompress failed: " + err.Error()}))
 			return
 		}
 		decompressed, err := io.ReadAll(gz)
@@ -208,7 +208,7 @@ func (td *TargetDaemon) handleBinaryChunk(data []byte) {
 			log.Printf("Failed to decompress chunk: %v", err)
 			td.dropReassembly(r.id)
 			td.closeFileWriter(r)
-			td.send(&Message{Type: "file_transfer_result", ID: r.id, OK: boolPtr(false), Error: "gzip read failed: " + err.Error()})
+			td.send(stampVersion(&Message{Type: "file_transfer_result", ID: r.id, OK: boolPtr(false), Error: "gzip read failed: " + err.Error()}))
 			return
 		}
 		data = decompressed
@@ -274,7 +274,7 @@ func (td *TargetDaemon) finishReassembly(r *fileReassembly) {
 		// The file will be closed when the daemon process exits or when
 		// a subsequent non-parallel transfer reuses the dst path.
 		log.Printf("Parallel stream completed (id=%s): %s -> %s", r.id, r.src, r.dst)
-		td.send(&Message{Type: "file_transfer_result", ID: r.id, OK: boolPtr(true)})
+		td.send(stampVersion(&Message{Type: "file_transfer_result", ID: r.id, OK: boolPtr(true)}))
 		return
 	}
 	if r.fileWriter != nil {
@@ -288,14 +288,14 @@ func (td *TargetDaemon) finishReassembly(r *fileReassembly) {
 	} else {
 		// Buffer mode — write to disk now
 		if err := writeTransfer(r); err != nil {
-			td.send(&Message{Type: "file_transfer_result", ID: r.id, OK: boolPtr(false), Error: err.Error()})
+			td.send(stampVersion(&Message{Type: "file_transfer_result", ID: r.id, OK: boolPtr(false), Error: err.Error()}))
 			return
 		}
 		totalBytes = int64(r.buf.Len())
 	}
 
 	log.Printf("Chunked file transfer succeeded (id=%s): %s -> %s (%d bytes)", r.id, r.src, r.dst, totalBytes)
-	td.send(&Message{Type: "file_transfer_result", ID: r.id, OK: boolPtr(true)})
+	td.send(stampVersion(&Message{Type: "file_transfer_result", ID: r.id, OK: boolPtr(true)}))
 }
 
 func (td *TargetDaemon) dropReassembly(id string) {

@@ -207,6 +207,7 @@ func handleFileTransfer(target, src, dst string, stream bool) error {
 				return
 			}
 			if response.Type == "result" && response.ID == id {
+				noteDaemonVersion(target, response.DaemonVersion)
 				if stream {
 					emitProgress("complete", map[string]interface{}{
 						"ok": response.OK,
