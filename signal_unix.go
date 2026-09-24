@@ -34,12 +34,15 @@ func sendPairSignal(pid int) error {
 // Sent by `daemon update` / `relay daemon update` after swapping the binary.
 // waitIdle, if set, runs first so in-flight work can finish.
 func listenForRestartSignal(waitIdle func()) {
+	// Resolve the path now, while /proc/self/exe still names the file we
+	// were started from; an update replaces that path's contents, and we
+	// re-exec whatever it holds then.
+	exe, exeErr := os.Executable()
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGUSR2)
 	for range sigCh {
-		exe, err := os.Executable() // strips the " (deleted)" of a replaced file
-		if err != nil {
-			log.Printf("Restart requested but executable path unknown: %v", err)
+		if exeErr != nil {
+			log.Printf("Restart requested but executable path unknown: %v", exeErr)
 			continue
 		}
 		log.Printf("Received SIGUSR2 — restarting in place from %s", exe)

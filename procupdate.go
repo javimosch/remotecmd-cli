@@ -123,7 +123,7 @@ func findRunning(kind, name string) []runningProc {
 			}
 			p := runningProc{PID: pid, Exe: strings.TrimSuffix(exe, " (deleted)"), Args: argv}
 			if cg, err := os.ReadFile(filepath.Join("/proc", e.Name(), "cgroup")); err == nil {
-				p.Unit, p.UserUnit = unitFromCgroup(string(cg))
+				p.Unit, p.UserUnit = supervisingUnit(pid, string(cg))
 			}
 			probeRunning(&p, filepath.Join("/proc", e.Name(), "exe"))
 			out = append(out, p)
@@ -149,6 +149,29 @@ func findRunning(kind, name string) []runningProc {
 func probeRunning(p *runningProc, runningBinary string) {
 	p.Version = parseDaemonVersion(runQuiet(runningBinary, "version"))
 	p.CanReexec = strings.Contains(runQuiet(runningBinary, "help-json"), `"daemon update"`)
+}
+
+// supervisingUnit returns the systemd unit that supervises pid, if any. A
+// process launched from inside another unit (e.g. a relay started through
+// the node's daemon) sits in that unit's cgroup without being its main
+// process; restarting that unit would kill it, not restart it.
+func supervisingUnit(pid int, cgroup string) (string, bool) {
+	unit, user := unitFromCgroup(cgroup)
+	if unit == "" || unitMainPID(unit, user) != pid {
+		return "", false
+	}
+	return unit, user
+}
+
+// unitMainPID returns the main PID systemd tracks for unit (0 if unknown).
+// A var so tests can stub systemd.
+var unitMainPID = func(unit string, user bool) int {
+	args := []string{"show", "-p", "MainPID", "--value", unit}
+	if user {
+		args = append([]string{"--user"}, args...)
+	}
+	pid, _ := strconv.Atoi(strings.TrimSpace(runQuiet("systemctl", args...)))
+	return pid
 }
 
 func runQuiet(bin string, args ...string) string {

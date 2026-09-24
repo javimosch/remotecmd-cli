@@ -60,6 +60,49 @@ func TestUnitFromCgroup(t *testing.T) {
 	}
 }
 
+func TestSupervisingUnitRequiresMainPID(t *testing.T) {
+	old := unitMainPID
+	defer func() { unitMainPID = old }()
+	unitMainPID = func(unit string, user bool) int { return 100 }
+
+	cg := "0::/user.slice/user-1000.slice/user@1000.service/app.slice/remotecmd.service\n"
+	if u, user := supervisingUnit(100, cg); u != "remotecmd.service" || !user {
+		t.Errorf("main process: got %q,%v", u, user)
+	}
+	// A relay started via rcx lives in the daemon's unit cgroup but is not
+	// its main PID: it must be treated as unsupervised.
+	if u, _ := supervisingUnit(200, cg); u != "" {
+		t.Errorf("non-main process in a unit's cgroup must not claim the unit, got %q", u)
+	}
+}
+
+// releaseServing serves the file at binPath as this platform's release
+// asset, with a correct checksums.txt.
+func releaseServing(t *testing.T, version, binPath string) *githubRelease {
+	t.Helper()
+	bin, err := os.ReadFile(binPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(bin)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "checksums.txt") {
+			fmt.Fprintf(w, "%s  %s\n", hex.EncodeToString(sum[:]), assetNameForPlatform())
+			return
+		}
+		w.Write(bin)
+	}))
+	t.Cleanup(srv.Close)
+	rel := &githubRelease{TagName: "v" + version}
+	for _, a := range []struct{ n, u string }{{assetNameForPlatform(), srv.URL + "/bin"}, {"checksums.txt", srv.URL + "/checksums.txt"}} {
+		rel.Assets = append(rel.Assets, struct {
+			Name               string `json:"name"`
+			BrowserDownloadURL string `json:"browser_download_url"`
+		}{a.n, a.u})
+	}
+	return rel
+}
+
 // fakeReleaseServer serves a "binary" (a shell script passing the smoke
 // test) and a checksums.txt for it; tamper corrupts the checksum.
 func fakeReleaseServer(t *testing.T, version string, tamper bool) *githubRelease {
@@ -201,7 +244,16 @@ func TestRelayRestartsInPlaceOnNewBinary(t *testing.T) {
 		t.Fatalf("findRunning = %+v", found)
 	}
 
-	os.Rename(v2, exe) // what installRelease does
+	// The real update path: installRelease backs up by copy and renames the
+	// new binary over exe. (Moving exe to .bak instead made the running
+	// process re-exec the backup — seen live on dk3.)
+	bak, err := installRelease(releaseServing(t, "7.0.0-b", v2), exe)
+	if err != nil {
+		t.Fatalf("installRelease: %v", err)
+	}
+	if v := parseDaemonVersion(runQuiet(bak, "version")); v != "7.0.0-a" {
+		t.Errorf("backup reports %q, want the old 7.0.0-a", v)
+	}
 	if r := restartProc(*found); !r.OK || r.Method != "reexec" {
 		t.Fatalf("restartProc = %+v", r)
 	}
@@ -246,7 +298,9 @@ func TestDaemonRestartsInPlaceAfterInflightCommand(t *testing.T) {
 	}
 	waitFor(t, "daemon v1", func() bool { return strings.Contains(runOn("true"), `"daemon_version": "7.0.0-a"`) })
 
-	os.Rename(v2, exe)
+	if _, err := installRelease(releaseServing(t, "7.0.0-b", v2), exe); err != nil {
+		t.Fatalf("installRelease: %v", err)
+	}
 	done := make(chan string, 1)
 	go func() { done <- runOn("sleep 1; echo finished") }()
 	time.Sleep(300 * time.Millisecond) // the command is now in flight

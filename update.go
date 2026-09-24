@@ -341,8 +341,10 @@ func maybeNudge() {
 
 // installRelease downloads rel's binary for this platform, verifies its
 // sha256 against the release's checksums.txt (fail closed), smoke-tests it,
-// and atomically swaps it in at exe, keeping the previous one as exe.bak.
-// A process already running exe keeps its old image until it restarts.
+// and atomically swaps it in at exe, keeping a copy of the previous one as
+// exe.bak. The backup is a copy, never a move (cli-update-spec §6): moving
+// the running file would make the running process's /proc/self/exe follow
+// it to .bak, so an in-place restart would re-exec the old binary.
 func installRelease(rel *githubRelease, exe string) (bak string, err error) {
 	dlURL, err := rel.findAsset()
 	if err != nil {
@@ -363,16 +365,43 @@ func installRelease(rel *githubRelease, exe string) (bak string, err error) {
 		return "", err
 	}
 	bak = exe + ".bak"
-	os.Remove(bak)
-	if err := os.Rename(exe, bak); err != nil {
+	if err := copyFile(exe, bak); err != nil {
 		os.Remove(tmp)
-		return "", fmt.Errorf("cannot move current binary to .bak: %w", err)
+		return "", fmt.Errorf("cannot back up current binary: %w", err)
 	}
+	// rename(2) over exe is atomic: the path now names the new binary,
+	// while a running process keeps its (now unlinked) old image.
 	if err := os.Rename(tmp, exe); err != nil {
-		os.Rename(bak, exe)
 		os.Remove(tmp)
-		return "", fmt.Errorf("swap failed; rolled back: %w", err)
+		return "", fmt.Errorf("swap failed, current binary untouched: %w", err)
 	}
-	os.Chmod(exe, 0o755)
 	return bak, nil
+}
+
+// copyFile copies src to dst (replacing it) with src's permissions.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	fi, err := in.Stat()
+	if err != nil {
+		return err
+	}
+	tmp := dst + ".tmp"
+	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, fi.Mode().Perm())
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := out.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, dst)
 }
