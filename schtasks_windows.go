@@ -24,8 +24,7 @@ const schtasksName = "remotecmd-daemon"
 func handleDaemonInstallSchtasks() {
 	binPath, err := os.Executable()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: cannot get executable path: %v\n", err)
-		osExit(ExitInternal)
+		failErrCode(ExitInternal, fmt.Errorf("cannot get executable path: %w", err))
 	}
 
 	binDir := filepath.Dir(binPath)
@@ -40,8 +39,7 @@ func handleDaemonInstallSchtasks() {
 	wrapperContent += fmt.Sprintf("\"%s\" daemon start\r\n", binPath)
 
 	if err := os.WriteFile(wrapperPath, []byte(wrapperContent), 0644); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: writing wrapper batch file: %v\n", err)
-		osExit(ExitInternal)
+		failErrCode(ExitInternal, fmt.Errorf("writing wrapper batch file: %w", err))
 	}
 
 	fmt.Printf("Wrapper batch file: %s\n", wrapperPath)
@@ -61,8 +59,7 @@ func handleDaemonInstallSchtasks() {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: creating scheduled task: %v\n", err)
-		osExit(ExitInternal)
+		failErrCode(ExitInternal, fmt.Errorf("creating scheduled task: %w", err))
 	}
 
 	// Disable battery restrictions and time limit via PowerShell
@@ -118,8 +115,7 @@ func handleDaemonRemoveSchtasks() {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: removing scheduled task: %v\n", err)
-		osExit(ExitInternal)
+		failErrCode(ExitInternal, fmt.Errorf("removing scheduled task: %w", err))
 	}
 
 	// Remove the wrapper batch file
@@ -135,8 +131,7 @@ func handleDaemonRemoveSchtasks() {
 // handleDaemonSchtasksSubcommand handles "daemon schtasks install|remove" on Windows.
 func handleDaemonSchtasksSubcommand(args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: remotecmd-cli daemon schtasks install|remove")
-		osExit(ExitConfigError)
+		fail(ExitConfigError, "missing_argument", "daemon schtasks needs install or remove", "remotecmd-cli daemon schtasks install|remove")
 	}
 	switch args[0] {
 	case "install":
@@ -144,8 +139,6 @@ func handleDaemonSchtasksSubcommand(args []string) {
 	case "remove":
 		handleDaemonRemoveSchtasks()
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown schtasks command: %s\n", args[0])
-		fmt.Fprintln(os.Stderr, "Usage: remotecmd-cli daemon schtasks install|remove")
-		osExit(ExitConfigError)
+		fail(ExitConfigError, "unknown_command", "unknown schtasks command: "+args[0], "remotecmd-cli daemon schtasks install|remove")
 	}
 }

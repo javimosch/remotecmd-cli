@@ -1,9 +1,9 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
-	"os"
 	"time"
 )
 
@@ -17,32 +17,27 @@ func handlePairDisconnect(args []string) {
 	fs.Parse(args)
 
 	if *target == "" {
-		fmt.Fprintln(os.Stderr, "Error: --target is required")
-		fmt.Fprintln(os.Stderr, "Usage: remotecmd-cli pair disconnect --target <name>")
-		osExit(ExitConfigError)
+		fail(ExitConfigError, "missing_argument", "--target is required", "remotecmd-cli pair disconnect --target <name>")
 	}
 
 	cfg, err := loadConfig()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
-		osExit(ExitConfigError)
+		failErrCode(ExitConfigError, fmt.Errorf("loading config: %w", err))
 	}
 	if cfg.Relay.URL == "" {
-		fmt.Fprintln(os.Stderr, "Error: relay not configured. Run: remotecmd-cli set-relay --url <url> --name <name>")
-		osExit(ExitConfigError)
+		fail(ExitConfigError, "not_configured", "relay not configured", "remotecmd-cli set-relay --url <url> --name <name>")
 	}
 
 	tgt, ok := cfg.Targets[*target]
 	if !ok {
-		fmt.Fprintf(os.Stderr, "Error: target %q not found in config\n", *target)
-		osExit(ExitConfigError)
+		fail(ExitConfigError, "unknown_target", fmt.Sprintf("target %q not found in config", *target),
+			defaultSuggestions["unknown_target"]...)
 	}
 
 	u := wsURL(cfg.Relay.URL)
 	conn, _, err := dialRelay(u)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error connecting to relay: %v\n", err)
-		osExit(ExitConfigError)
+		failErrCode(ExitRelayError, fmt.Errorf("connecting to relay: %w", err))
 	}
 	defer conn.Close()
 
@@ -53,8 +48,7 @@ func handlePairDisconnect(args []string) {
 		Token:  tgt.Token,
 	}
 	if err := conn.WriteJSON(disconnectMsg); err != nil {
-		fmt.Fprintf(os.Stderr, "Error sending disconnect: %v\n", err)
-		osExit(ExitConfigError)
+		failErrCode(ExitRelayError, fmt.Errorf("sending disconnect: %w", err))
 	}
 
 	fmt.Printf("Disconnect sent to %q...\n", *target)
@@ -80,15 +74,13 @@ func handlePairDisconnect(args []string) {
 	select {
 	case msg := <-resultCh:
 		if msg.Type == "error" {
-			fmt.Fprintf(os.Stderr, "Error: %s\n", msg.Error)
-			osExit(ExitConfigError)
+			failErrCode(ExitConfigError, errors.New(msg.Error))
 		}
 		fmt.Printf("Target %q disconnected.\n", *target)
 	case err := <-errCh:
-		fmt.Fprintf(os.Stderr, "Connection error: %v\n", err)
-		osExit(ExitConfigError)
+		failErrCode(ExitRelayError, fmt.Errorf("connection error: %w", err))
 	case <-time.After(10 * time.Second):
-		fmt.Fprintf(os.Stderr, "Timed out waiting for disconnect confirmation (target may already be offline)\n")
-		osExit(ExitConfigError)
+		fail(ExitRelayError, "timeout", "timed out waiting for disconnect confirmation (target may already be offline)",
+			"remotecmd-cli list-targets --refresh")
 	}
 }

@@ -139,18 +139,15 @@ func (s *ClientSession) Close() {
 func handleClientSubcommand(args []string) {
 	cfg, err := loadConfig()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		osExit(ExitConfigError)
+		failErrCode(ExitConfigError, err)
 	}
 	if cfg.Relay.URL == "" {
-		fmt.Fprintln(os.Stderr, "Error: relay not configured")
-		osExit(ExitConfigError)
+		fail(ExitConfigError, "not_configured", "relay not configured", "remotecmd-cli set-relay --url <url> --name <name>")
 	}
 
 	session, err := newClientSession(cfg.Relay.URL)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		osExit(classifyError(err))
+		failErr(err)
 	}
 	defer session.Close()
 

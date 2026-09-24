@@ -11,8 +11,7 @@ import (
 
 func handlePairSubcommand(args []string) {
 	if len(args) < 1 {
-		printPairHelp()
-		osExit(ExitConfigError)
+		failUsage("missing_argument", "pair needs a subcommand", printPairHelp)
 	}
 	switch args[0] {
 	case "listen":
@@ -22,8 +21,7 @@ func handlePairSubcommand(args []string) {
 	case "disconnect":
 		handlePairDisconnect(args[1:])
 	default:
-		printPairHelp()
-		osExit(ExitConfigError)
+		failUsage("unknown_command", "unknown pair subcommand: "+args[0], printPairHelp)
 	}
 }
 
@@ -37,12 +35,10 @@ func handlePairListen(args []string) {
 
 	cfg, err := loadConfig()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
-		osExit(ExitConfigError)
+		failErrCode(ExitConfigError, fmt.Errorf("loading config: %w", err))
 	}
 	if cfg.Relay.URL == "" {
-		fmt.Fprintln(os.Stderr, "Error: relay not configured. Run: remotecmd-cli set-relay --url <url> --name <name>")
-		osExit(ExitConfigError)
+		fail(ExitConfigError, "not_configured", "relay not configured", "remotecmd-cli set-relay --url <url> --name <name>")
 	}
 
 	code := *codeFlag
@@ -53,14 +49,12 @@ func handlePairListen(args []string) {
 	u := wsURL(cfg.Relay.URL)
 	conn, _, err := dialRelay(u)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error connecting to relay: %v\n", err)
-		osExit(ExitConfigError)
+		failErrCode(ExitRelayError, fmt.Errorf("connecting to relay: %w", err))
 	}
 	defer conn.Close()
 
 	if err := conn.WriteJSON(&Message{Type: "pair_listen", Code: code, RequireActivationKey: *requireActivationKey}); err != nil {
-		fmt.Fprintf(os.Stderr, "Error sending pair_listen: %v\n", err)
-		osExit(ExitConfigError)
+		failErrCode(ExitRelayError, fmt.Errorf("sending pair_listen: %w", err))
 	}
 
 	oneLiner := fmt.Sprintf(
@@ -108,16 +102,14 @@ func handlePairListen(args []string) {
 			// User specified an alias — save only the alias entry with RelayName
 			// (no raw hostname entry to avoid duplicates like "prod" + "prod-server-01")
 			if err := addTargetWithRelayName(*name, msg.Token, remoteHostname); err != nil {
-				fmt.Fprintf(os.Stderr, "Error saving target: %v\n", err)
-				osExit(ExitConfigError)
+				failErrCode(ExitConfigError, fmt.Errorf("saving target: %w", err))
 			}
 			fmt.Printf("\nPeer connected! Target %q added (relay name: %s)\n", *name, remoteHostname)
 			fmt.Printf("Run: remotecmd-cli --target %s --cmd 'hostname'\n", *name)
 		} else {
 			// No alias — save under the remote hostname directly
 			if err := addTarget(remoteHostname, msg.Token); err != nil {
-				fmt.Fprintf(os.Stderr, "Error saving target: %v\n", err)
-				osExit(ExitConfigError)
+				failErrCode(ExitConfigError, fmt.Errorf("saving target: %w", err))
 			}
 			targetName := remoteHostname
 			if *name != "" {
@@ -127,11 +119,10 @@ func handlePairListen(args []string) {
 			fmt.Printf("Run: remotecmd-cli --target %s --cmd 'hostname'\n", targetName)
 		}
 	case err := <-errCh:
-		fmt.Fprintf(os.Stderr, "Connection error: %v\n", err)
-		osExit(ExitConfigError)
+		failErrCode(ExitRelayError, fmt.Errorf("connection error: %w", err))
 	case <-time.After(time.Duration(*timeoutSec) * time.Second):
-		fmt.Fprintf(os.Stderr, "Timed out waiting for peer after %ds\n", *timeoutSec)
-		osExit(ExitConfigError)
+		fail(ExitConfigError, "timeout", fmt.Sprintf("timed out waiting for peer after %ds", *timeoutSec),
+			"run the printed one-liner on the new machine, or retry with a longer --timeout")
 	}
 }
 
@@ -148,23 +139,20 @@ func handlePairAccept(args []string) {
 	fs.Parse(args)
 
 	if *codeFlag == "" {
-		fmt.Fprintln(os.Stderr, "Error: --code is required")
-		fmt.Fprintln(os.Stderr, "Usage: remotecmd-cli pair accept --code <code> [--activation-key <key>]")
-		osExit(ExitConfigError)
+		fail(ExitConfigError, "missing_argument", "--code is required",
+			"remotecmd-cli pair accept --code <code> [--activation-key <key>]")
 	}
 
 	// Save the pair code to disk
 	if err := savePairCode(*codeFlag); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: could not save pair code: %v\n", err)
-		osExit(ExitConfigError)
+		failErrCode(ExitConfigError, fmt.Errorf("could not save pair code: %w", err))
 	}
 	fmt.Printf("Pair code %q saved to %s\n", *codeFlag, pairCodePath())
 
 	// Save the activation key to disk (if provided) so the daemon can send it
 	if *activationKey != "" {
 		if err := saveActivationKey(*activationKey); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: could not save activation key: %v\n", err)
-			osExit(ExitConfigError)
+			failErrCode(ExitConfigError, fmt.Errorf("could not save activation key: %w", err))
 		}
 	} else {
 		deleteActivationKey()
@@ -195,7 +183,7 @@ func handlePairAccept(args []string) {
 }
 
 func printPairHelp() {
-	fmt.Println(`Usage: remotecmd-cli pair <command>
+	fmt.Fprintln(helpWriter(), `Usage: remotecmd-cli pair <command>
 
 Commands:
   listen [--name <n>] [--timeout <s>] [--code <c>] [--require-activation-key]

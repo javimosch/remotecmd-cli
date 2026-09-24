@@ -247,16 +247,14 @@ func handleUpdate(args []string) {
 		case "--force":
 			force = true
 		default:
-			fmt.Fprintf(os.Stderr, "Usage: remotecmd-cli update [--check] [--force]\n")
-			osExit(ExitConfigError)
+			fail(ExitConfigError, "invalid_arguments", "unknown update flag: "+a, "remotecmd-cli update [--check] [--force]")
 		}
 	}
 
 	// Fetch latest release info from GitHub
 	rel, err := latestReleaseInfo()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[update] cannot reach GitHub: %v\n", err)
-		osExit(exitUpdateFail)
+		failErrCode(exitUpdateFail, fmt.Errorf("cannot reach GitHub: %w", err))
 	}
 
 	latestTag := strings.TrimPrefix(rel.TagName, "v")
@@ -277,8 +275,7 @@ func handleUpdate(args []string) {
 	// Find the binary for this platform
 	dlURL, err := rel.findAsset()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[update] %v\n", err)
-		osExit(exitUpdateFail)
+		failErrCode(exitUpdateFail, err)
 	}
 
 	fmt.Fprintf(os.Stderr, "[update] %s → %s; downloading…\n", currentTag, latestTag)
@@ -286,31 +283,27 @@ func handleUpdate(args []string) {
 	// Get executable path
 	exe, err := os.Executable()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[update] cannot determine executable path: %v\n", err)
-		osExit(exitUpdateFail)
+		failErrCode(exitUpdateFail, fmt.Errorf("cannot determine executable path: %w", err))
 	}
 	exe, _ = resolveSymlink(exe)
 
 	// Download to temp file in same directory (for atomic rename)
 	tmp := fmt.Sprintf("%s.new.%d", exe, os.Getpid())
 	if err := downloadFile(dlURL, tmp); err != nil {
-		fmt.Fprintf(os.Stderr, "[update] download failed: %v\n", err)
-		osExit(exitUpdateFail)
+		failErrCode(exitUpdateFail, fmt.Errorf("download failed: %w", err))
 	}
 
 	// Verify hash against checksums.txt (fail closed)
 	if err := verifyReleaseChecksum(rel, tmp); err != nil {
 		os.Remove(tmp)
-		fmt.Fprintf(os.Stderr, "[update] %v\n", err)
-		osExit(exitUpdateFail)
+		failErrCode(exitUpdateFail, err)
 	}
 
 	// Smoke test: the new binary must run `version`
 	os.Chmod(tmp, 0o755)
 	if err := smokeTestBinary(tmp); err != nil {
 		os.Remove(tmp)
-		fmt.Fprintf(os.Stderr, "[update] %v\n", err)
-		osExit(exitUpdateFail)
+		failErrCode(exitUpdateFail, err)
 	}
 
 	// Atomic swap: current → .bak, new → in place
@@ -318,15 +311,13 @@ func handleUpdate(args []string) {
 	os.Remove(bak) // remove old .bak if exists
 	if err := os.Rename(exe, bak); err != nil {
 		os.Remove(tmp)
-		fmt.Fprintf(os.Stderr, "[update] cannot move current to .bak: %v\n", err)
-		osExit(exitUpdateFail)
+		failErrCode(exitUpdateFail, fmt.Errorf("cannot move current binary to .bak: %w", err))
 	}
 	if err := os.Rename(tmp, exe); err != nil {
 		// Rollback
 		os.Rename(bak, exe)
 		os.Remove(tmp)
-		fmt.Fprintf(os.Stderr, "[update] swap failed; rolled back: %v\n", err)
-		osExit(exitUpdateFail)
+		failErrCode(exitUpdateFail, fmt.Errorf("swap failed; rolled back: %w", err))
 	}
 	os.Chmod(exe, 0o755)
 

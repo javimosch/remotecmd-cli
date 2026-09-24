@@ -37,10 +37,12 @@ var errorOut io.Writer = os.Stderr
 // fail reports a typed error and exits with code.
 func fail(code int, typ, msg string, suggestions ...string) {
 	writeError(errorOut, cliError{
-		Code:        code,
-		Type:        typ,
-		Message:     msg,
-		Recoverable: code == ExitRelayError,
+		Code:    code,
+		Type:    typ,
+		Message: msg,
+		// Relay errors and the spec's 100-109 "external" range are
+		// transient: the agent may retry with backoff.
+		Recoverable: code == ExitRelayError || (code >= 100 && code <= 109),
 		Suggestions: suggestions,
 	})
 	osExit(code)
@@ -69,11 +71,13 @@ var defaultSuggestions = map[string][]string{
 
 func writeError(w io.Writer, e cliError) {
 	if errorFormatJSON() {
-		b, _ := json.Marshal(struct {
+		// No HTML escaping: usage suggestions are full of <placeholders>.
+		enc := json.NewEncoder(w)
+		enc.SetEscapeHTML(false)
+		enc.Encode(struct {
 			OK    bool     `json:"ok"`
 			Error cliError `json:"error"`
 		}{false, e})
-		fmt.Fprintln(w, string(b))
 		return
 	}
 	fmt.Fprintf(w, "Error: %s\n", e.Message)
@@ -102,14 +106,20 @@ func errorType(code int, msg string) string {
 	switch code {
 	case ExitRelayError:
 		return "relay_unreachable"
+	case exitUpdateFail:
+		return "update_failed"
 	case ExitInternal:
 		return "internal"
 	case ExitExecError:
 		return "command_failed"
 	}
 	switch {
-	case strings.Contains(msg, "unknown target"):
+	case strings.Contains(msg, "unknown target"), strings.Contains(msg, "not found in config"):
 		return "unknown_target"
+	case strings.Contains(msg, "not connected"):
+		return "target_offline"
+	case strings.Contains(msg, "timed out"), strings.Contains(msg, "Timed out"):
+		return "timeout"
 	case strings.Contains(msg, "unknown command"), strings.Contains(msg, "Unknown command"):
 		return "unknown_command"
 	case strings.Contains(msg, "not configured"):
@@ -122,4 +132,41 @@ func errorType(code int, msg string) string {
 		return "not_found"
 	}
 	return "invalid_arguments"
+}
+
+// helpOut is where the print*Help functions write. It is stdout for an
+// explicit help request; failUsage points it at a buffer so the same text
+// can accompany an error on stderr instead of polluting stdout.
+var helpOut io.Writer // nil = os.Stdout, resolved at call time
+
+func helpWriter() io.Writer {
+	if helpOut == nil {
+		return os.Stdout
+	}
+	return helpOut
+}
+
+// failUsage reports a usage error for a command group. Humans get the usage
+// text on stderr followed by "Error: msg"; agents get one typed JSON error
+// whose suggestions are the usage lines.
+func failUsage(typ, msg string, printUsage func()) {
+	var buf strings.Builder
+	old := helpOut
+	helpOut = &buf
+	printUsage()
+	helpOut = old
+
+	if !errorFormatJSON() {
+		fmt.Fprint(errorOut, buf.String())
+		fail(ExitConfigError, typ, msg)
+		return
+	}
+	var lines []string
+	for _, l := range strings.Split(buf.String(), "\n") {
+		l = strings.TrimSpace(l)
+		if l != "" && l != "Commands:" {
+			lines = append(lines, l)
+		}
+	}
+	fail(ExitConfigError, typ, msg, lines...)
 }

@@ -200,8 +200,7 @@ func handleExecSubcommand(args []string) {
 
 func handleGroupSubcommand(args []string) {
 	if len(args) < 1 {
-		printGroupHelp()
-		osExit(ExitConfigError)
+		failUsage("missing_argument", "group needs a subcommand", printGroupHelp)
 	}
 	switch args[0] {
 	case "create":
@@ -215,8 +214,7 @@ func handleGroupSubcommand(args []string) {
 	case "list":
 		handleGroupList()
 	default:
-		printGroupHelp()
-		osExit(ExitConfigError)
+		failUsage("unknown_command", "unknown group subcommand: "+args[0], printGroupHelp)
 	}
 }
 
@@ -227,8 +225,8 @@ func handleGroupCreate(args []string) {
 	fs.Parse(args)
 
 	if *name == "" || *targets == "" {
-		fmt.Fprintln(os.Stderr, "Error: --name and --targets are required")
-		osExit(ExitConfigError)
+		fail(ExitConfigError, "missing_argument", "--name and --targets are required",
+			"remotecmd-cli group create|add|remove --name <n> --targets <t1,t2,...>")
 	}
 
 	list := strings.Split(*targets, ",")
@@ -237,8 +235,7 @@ func handleGroupCreate(args []string) {
 	}
 
 	if err := groupCreate(*name, list); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		osExit(ExitConfigError)
+		failErrCode(ExitConfigError, err)
 	}
 	fmt.Printf("Group %q created with %d targets\n", *name, len(list))
 }
@@ -249,13 +246,11 @@ func handleGroupDelete(args []string) {
 	fs.Parse(args)
 
 	if *name == "" {
-		fmt.Fprintln(os.Stderr, "Error: --name is required")
-		osExit(ExitConfigError)
+		fail(ExitConfigError, "missing_argument", "--name is required", "remotecmd-cli group delete --name <n>")
 	}
 
 	if err := groupDelete(*name); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		osExit(ExitConfigError)
+		failErrCode(ExitConfigError, err)
 	}
 	fmt.Printf("Group %q deleted\n", *name)
 }
@@ -267,8 +262,8 @@ func handleGroupAdd(args []string) {
 	fs.Parse(args)
 
 	if *name == "" || *targets == "" {
-		fmt.Fprintln(os.Stderr, "Error: --name and --targets are required")
-		osExit(ExitConfigError)
+		fail(ExitConfigError, "missing_argument", "--name and --targets are required",
+			"remotecmd-cli group create|add|remove --name <n> --targets <t1,t2,...>")
 	}
 
 	list := strings.Split(*targets, ",")
@@ -277,8 +272,7 @@ func handleGroupAdd(args []string) {
 	}
 
 	if err := groupAddTargets(*name, list); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		osExit(ExitConfigError)
+		failErrCode(ExitConfigError, err)
 	}
 	fmt.Printf("Targets added to group %q\n", *name)
 }
@@ -290,8 +284,8 @@ func handleGroupRemove(args []string) {
 	fs.Parse(args)
 
 	if *name == "" || *targets == "" {
-		fmt.Fprintln(os.Stderr, "Error: --name and --targets are required")
-		osExit(ExitConfigError)
+		fail(ExitConfigError, "missing_argument", "--name and --targets are required",
+			"remotecmd-cli group create|add|remove --name <n> --targets <t1,t2,...>")
 	}
 
 	list := strings.Split(*targets, ",")
@@ -300,15 +294,13 @@ func handleGroupRemove(args []string) {
 	}
 
 	if err := groupRemoveTargets(*name, list); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		osExit(ExitConfigError)
+		failErrCode(ExitConfigError, err)
 	}
 	fmt.Printf("Targets removed from group %q\n", *name)
 }
 
 func handleGroupList() {
 	if err := groupList(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		osExit(ExitInternal)
+		failErrCode(ExitInternal, err)
 	}
 }

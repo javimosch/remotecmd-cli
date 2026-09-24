@@ -39,15 +39,13 @@ func handleCP(args []string) {
 	fs.Parse(args)
 
 	if *target == "" || *src == "" || *dst == "" {
-		fmt.Fprintln(os.Stderr, "Error: --target, --src, and --dst are required")
-		fmt.Fprintln(os.Stderr, "Usage: remotecmd-cli cp --target <name> --src <path> --dst <path> [--stream]")
-		osExit(ExitConfigError)
+		fail(ExitConfigError, "missing_argument", "--target, --src, and --dst are required",
+			"remotecmd-cli cp --target <name> --src <path> --dst <path> [--stream]")
 	}
 
 	warnIfDaemonTooOld(*target, "cp", "the copy may hang")
 	if err := handleFileTransfer(*target, *src, *dst, *stream); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		osExit(ExitConfigError)
+		failErrCode(ExitConfigError, err)
 	}
 	if !*stream {
 		fmt.Printf("Copy completed successfully\n")

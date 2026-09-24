@@ -19,8 +19,8 @@ import (
 // (or "off" to disable).
 func handleFeedback(args []string) {
 	if len(args) < 1 || args[0] == "" {
-		fmt.Fprintln(os.Stderr, `usage: rcmd feedback "<message>" [--kind bug|idea|praise] [--context "<what you were doing>"]`)
-		osExit(ExitConfigError)
+		fail(ExitConfigError, "missing_argument", "feedback needs a message",
+			`remotecmd-cli feedback "<message>" [--kind bug|idea|praise] [--context "<what you were doing>"]`)
 		return
 	}
 	msg := args[0]

@@ -39,8 +39,7 @@ func handleTunnelStart(args []string) {
 	fs.Parse(args)
 
 	if *target == "" || *local == "" || *remote == "" {
-		printTunnelHelp()
-		osExit(ExitConfigError)
+		failUsage("missing_argument", "--target, --local and --remote are required", printTunnelHelp)
 	}
 
 	if *bg {
@@ -48,8 +47,7 @@ func handleTunnelStart(args []string) {
 		logFile := tunnelLogFile(*target, *local)
 		childArgs := []string{"tunnel", "start", "--target", *target, "--local", *local, "--remote", *remote}
 		if err := startBackground(pidFile, logFile, childArgs...); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			osExit(classifyError(err))
+			failErr(err)
 		}
 		pid := readPid(pidFile)
 		fmt.Printf("Tunnel started (PID %d): 127.0.0.1:%s -> %s:%s\n", pid, *local, *target, *remote)
@@ -57,8 +55,7 @@ func handleTunnelStart(args []string) {
 	}
 
 	if err := runTunnel(*target, *local, *remote); err != nil {
-		fmt.Fprintf(os.Stderr, "Tunnel error: %v\n", err)
-		osExit(ExitInternal)
+		failErrCode(ExitInternal, fmt.Errorf("tunnel error: %w", err))
 	}
 }
 
@@ -69,14 +66,12 @@ func handleTunnelStop(args []string) {
 	fs.Parse(args)
 
 	if *target == "" || *local == "" {
-		printTunnelHelp()
-		osExit(ExitConfigError)
+		failUsage("missing_argument", "--target and --local are required", printTunnelHelp)
 	}
 
 	pidFile := tunnelPidFile(*target, *local)
 	if err := stopBackground(pidFile); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		osExit(classifyError(err))
+		failErr(err)
 	}
 	fmt.Printf("Tunnel %s:%s stopped\n", *target, *local)
 }
@@ -129,7 +124,7 @@ func tunnelLogFile(target, local string) string {
 }
 
 func printTunnelHelp() {
-	fmt.Println(`Usage: remotecmd-cli tunnel <command> [options]
+	fmt.Fprintln(helpWriter(), `Usage: remotecmd-cli tunnel <command> [options]
 
 Start a TCP tunnel through the WebSocket relay:
   remotecmd-cli tunnel --target <name> --local <port> --remote <host:port> [-daemon]

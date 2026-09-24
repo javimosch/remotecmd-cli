@@ -9,8 +9,7 @@ import (
 
 func handleRelaySubcommand(args []string) {
 	if len(args) < 1 {
-		printRelayHelp()
-		osExit(ExitConfigError)
+		failUsage("missing_argument", "relay needs a subcommand", printRelayHelp)
 	}
 	switch args[0] {
 	case "daemon":
@@ -22,20 +21,17 @@ func handleRelaySubcommand(args []string) {
 	case "list-keys":
 		handleRelayListKeys()
 	default:
-		printRelayHelp()
-		osExit(ExitConfigError)
+		failUsage("unknown_command", "unknown relay subcommand: "+args[0], printRelayHelp)
 	}
 }
 
 func handleRelayAddKey(args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: remotecmd-cli relay add-key <key>")
-		osExit(ExitConfigError)
+		fail(ExitConfigError, "missing_argument", "relay add-key needs a key", "remotecmd-cli relay add-key <key>")
 	}
 	key := args[0]
 	if err := addActivationKey(key); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		osExit(classifyError(err))
+		failErr(err)
 	}
 	fmt.Printf("Activation key added: %s\n", key)
 	fmt.Println("The relay will pick it up automatically (no restart needed).")
@@ -43,13 +39,11 @@ func handleRelayAddKey(args []string) {
 
 func handleRelayRemoveKey(args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: remotecmd-cli relay remove-key <key>")
-		osExit(ExitConfigError)
+		fail(ExitConfigError, "missing_argument", "relay remove-key needs a key", "remotecmd-cli relay remove-key <key>")
 	}
 	key := args[0]
 	if err := removeActivationKey(key); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		osExit(classifyError(err))
+		failErr(err)
 	}
 	fmt.Printf("Activation key removed: %s\n", key)
 }
@@ -73,8 +67,7 @@ func handleRelayListKeys() {
 
 func handleRelayDaemon(args []string) {
 	if len(args) < 1 {
-		printRelayDaemonHelp()
-		osExit(ExitConfigError)
+		failUsage("missing_argument", "relay daemon needs a subcommand", printRelayDaemonHelp)
 	}
 	switch args[0] {
 	case "start":
@@ -86,8 +79,7 @@ func handleRelayDaemon(args []string) {
 	case "systemd":
 		handleRelaySystemdSubcommand(args[1:])
 	default:
-		printRelayDaemonHelp()
-		osExit(ExitConfigError)
+		failUsage("unknown_command", "unknown relay daemon subcommand: "+args[0], printRelayDaemonHelp)
 	}
 }
 
@@ -121,8 +113,7 @@ func handleRelayDaemonStart(args []string) {
 		}
 		err := startBackground(relayPidFile, relayLogFile, childArgs...)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			osExit(classifyError(err))
+			failErr(err)
 		}
 		pid := readPid(relayPidFile)
 		fmt.Printf("Relay daemon started on port %d (PID %d)\n", *port, pid)
@@ -139,8 +130,7 @@ func handleRelayDaemonStart(args []string) {
 
 func handleRelayDaemonStop() {
 	if err := stopBackground(relayPidFile); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		osExit(classifyError(err))
+		failErr(err)
 	}
 	fmt.Println("Relay daemon stopped")
 }
@@ -154,8 +144,7 @@ func handleRelayDaemonStatus(args []string) {
 
 func handleDaemonSubcommand(args []string) {
 	if len(args) < 1 {
-		printDaemonHelp()
-		osExit(ExitConfigError)
+		failUsage("missing_argument", "daemon needs a subcommand", printDaemonHelp)
 	}
 	switch args[0] {
 	case "start":
@@ -167,8 +156,7 @@ func handleDaemonSubcommand(args []string) {
 	case persistenceSubcommandName():
 		handleDaemonPersistenceSubcommand(args[1:])
 	default:
-		printDaemonHelp()
-		osExit(ExitConfigError)
+		failUsage("unknown_command", "unknown daemon subcommand: "+args[0], printDaemonHelp)
 	}
 }
 
@@ -195,8 +183,7 @@ func handleDaemonStart(args []string) {
 		}
 		err := startBackground(pidFile, logFile, childArgs...)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			osExit(classifyError(err))
+			failErr(err)
 		}
 		pid := readPid(pidFile)
 		fmt.Printf("Daemon started (PID %d)\n", pid)
@@ -235,8 +222,7 @@ func handleDaemonStop(args []string) {
 	name := fs.String("name", "", "instance name (must match the one used at start)")
 	fs.Parse(args)
 	if err := stopBackground(namedDaemonPidFile(*name)); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		osExit(classifyError(err))
+		failErr(err)
 	}
 	fmt.Println("Daemon stopped")
 }

@@ -56,28 +56,24 @@ WantedBy=multi-user.target
 func handleDaemonInstallSystemd() {
 	binPath, err := os.Executable()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: cannot get executable path: %v\n", err)
-		osExit(ExitInternal)
+		failErrCode(ExitInternal, fmt.Errorf("cannot get executable path: %w", err))
 	}
 
 	usr, err := user.Current()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: cannot determine user: %v\n", err)
-		osExit(ExitInternal)
+		failErrCode(ExitInternal, fmt.Errorf("cannot determine user: %w", err))
 	}
 
 	unitDir := filepath.Join(usr.HomeDir, ".config", "systemd", "user")
 	if err := os.MkdirAll(unitDir, 0755); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: cannot create systemd user directory: %v\n", err)
-		osExit(ExitInternal)
+		failErrCode(ExitInternal, fmt.Errorf("cannot create systemd user directory: %w", err))
 	}
 
 	unitPath := filepath.Join(unitDir, daemonServiceName+".service")
 	content := daemonUnitContent(binPath)
 
 	if err := os.WriteFile(unitPath, []byte(content), 0644); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: writing unit file: %v\n", err)
-		osExit(ExitInternal)
+		failErrCode(ExitInternal, fmt.Errorf("writing unit file: %w", err))
 	}
 
 	fmt.Printf("Unit file written: %s\n", unitPath)
@@ -117,19 +113,13 @@ func handleDaemonInstallSystemd() {
 func handleRelayInstallSystemd() {
 	binPath, err := os.Executable()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: cannot get executable path: %v\n", err)
-		osExit(ExitInternal)
+		failErrCode(ExitInternal, fmt.Errorf("cannot get executable path: %w", err))
 	}
 
 	// Check if running as root for system-wide service
 	if !isRoot() {
-		fmt.Fprintln(os.Stderr, "Warning: relay systemd service requires root for system-wide installation.")
-		fmt.Fprintln(os.Stderr, "Run with sudo or as root.")
-		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "For a user-scope relay (no root), use:")
-		fmt.Fprintln(os.Stderr, "  remotecmd-cli daemon install-systemd")
-		fmt.Fprintln(os.Stderr, "  (the relay also runs as a daemon -- it can be a user service)")
-		osExit(ExitConfigError)
+		fail(ExitConfigError, "permission_denied", "the relay systemd service is system-wide and needs root",
+			"sudo remotecmd-cli relay daemon systemd install")
 	}
 
 	unitDir := "/etc/systemd/system"
@@ -139,8 +129,7 @@ func handleRelayInstallSystemd() {
 	content := relayUnitContent(binPath, port)
 
 	if err := os.WriteFile(unitPath, []byte(content), 0644); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: writing unit file: %v\n", err)
-		osExit(ExitInternal)
+		failErrCode(ExitInternal, fmt.Errorf("writing unit file: %w", err))
 	}
 
 	fmt.Printf("Unit file written: %s\n", unitPath)
@@ -179,8 +168,7 @@ func handleRelayInstallSystemd() {
 func handleDaemonRemoveSystemd() {
 	usr, err := user.Current()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: cannot determine user: %v\n", err)
-		osExit(ExitInternal)
+		failErrCode(ExitInternal, fmt.Errorf("cannot determine user: %w", err))
 	}
 
 	unitPath := filepath.Join(usr.HomeDir, ".config", "systemd", "user", daemonServiceName+".service")
@@ -231,8 +219,7 @@ func isRoot() bool {
 // Add systemd subcommand handlers to existing daemon/relay handlers
 func handleDaemonSystemdSubcommand(args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: remotecmd-cli daemon systemd install|remove")
-		osExit(ExitConfigError)
+		fail(ExitConfigError, "missing_argument", "daemon systemd needs install or remove", "remotecmd-cli daemon systemd install|remove")
 	}
 	switch args[0] {
 	case "install":
@@ -240,16 +227,13 @@ func handleDaemonSystemdSubcommand(args []string) {
 	case "remove":
 		handleDaemonRemoveSystemd()
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown systemd command: %s\n", args[0])
-		fmt.Fprintln(os.Stderr, "Usage: remotecmd-cli daemon systemd install|remove")
-		osExit(ExitConfigError)
+		fail(ExitConfigError, "unknown_command", "unknown systemd command: "+args[0], "remotecmd-cli daemon systemd install|remove")
 	}
 }
 
 func handleRelaySystemdSubcommand(args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: remotecmd-cli relay systemd install|remove")
-		osExit(ExitConfigError)
+		fail(ExitConfigError, "missing_argument", "relay daemon systemd needs install or remove", "remotecmd-cli relay daemon systemd install|remove")
 	}
 	switch args[0] {
 	case "install":
@@ -257,9 +241,7 @@ func handleRelaySystemdSubcommand(args []string) {
 	case "remove":
 		handleRelayRemoveSystemd()
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown systemd command: %s\n", args[0])
-		fmt.Fprintln(os.Stderr, "Usage: remotecmd-cli relay systemd install|remove")
-		osExit(ExitConfigError)
+		fail(ExitConfigError, "unknown_command", "unknown systemd command: "+args[0], "remotecmd-cli relay daemon systemd install|remove")
 	}
 }
 

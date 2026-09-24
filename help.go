@@ -92,7 +92,7 @@ OTHER:
 }
 
 func printRelayHelp() {
-	fmt.Println(`Usage: remotecmd-cli relay <command>
+	fmt.Fprintln(helpWriter(), `Usage: remotecmd-cli relay <command>
 
 Commands:
   daemon       Manage relay daemon (start/stop/status)
@@ -102,7 +102,7 @@ Commands:
 }
 
 func printRelayDaemonHelp() {
-	fmt.Println(`Usage: remotecmd-cli relay daemon <command>
+	fmt.Fprintln(helpWriter(), `Usage: remotecmd-cli relay daemon <command>
 
 Commands:
   start [--port <n>] [--host <addr>] [-daemon] [--tls-cert <file>] [--tls-key <file>]  Start relay hub
@@ -112,7 +112,7 @@ Commands:
 }
 
 func printDaemonHelp() {
-	fmt.Printf(`Usage: remotecmd-cli daemon <command>
+	fmt.Fprintf(helpWriter(), `Usage: remotecmd-cli daemon <command>
 
 Commands:
   start [--token <t>] [--name <n>] [-daemon]   Start target daemon (--name: extra instance)
@@ -123,7 +123,7 @@ Commands:
 }
 
 func printGroupHelp() {
-	fmt.Println(`Usage: remotecmd-cli group <command>
+	fmt.Fprintln(helpWriter(), `Usage: remotecmd-cli group <command>
 
 Commands:
   create --name <n> --targets <t1,t2,...>   Create a target group

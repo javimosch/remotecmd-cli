@@ -7,21 +7,19 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
+	"strings"
 	"time"
 )
 
 func handleSidecarSubcommand(args []string) {
 	if len(args) < 1 {
-		printSidecarHelp()
-		osExit(ExitConfigError)
+		failUsage("missing_argument", "sidecar needs a subcommand", printSidecarHelp)
 	}
 	switch args[0] {
 	case "activate":
 		handleSidecarActivate(args[1:])
 	default:
-		printSidecarHelp()
-		osExit(ExitConfigError)
+		failUsage("unknown_command", "unknown sidecar subcommand: "+args[0], printSidecarHelp)
 	}
 }
 
@@ -40,9 +38,8 @@ func handleSidecarActivate(args []string) {
 	fs.Parse(args)
 
 	if *url == "" || *relayURL == "" || *code == "" {
-		fmt.Fprintln(os.Stderr, "Error: --url, --relay, and --code are required")
-		fmt.Fprintln(os.Stderr, "Usage: remotecmd-cli sidecar activate --url <u> --relay <r> --code <c> [--activation-key <k>] [--name <n>]")
-		osExit(ExitConfigError)
+		fail(ExitConfigError, "missing_argument", "--url, --relay, and --code are required",
+			"remotecmd-cli sidecar activate --url <u> --relay <r> --code <c> [--activation-key <k>] [--name <n>]")
 	}
 
 	// Build the full URL if --url is just the base
@@ -67,8 +64,7 @@ func handleSidecarActivate(args []string) {
 
 	body, err := json.Marshal(payload)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error building request: %v\n", err)
-		osExit(ExitConfigError)
+		failErrCode(ExitConfigError, fmt.Errorf("building request: %w", err))
 	}
 
 	fmt.Printf("Activating sidecar at %s...\n", fullURL)
@@ -76,16 +72,14 @@ func handleSidecarActivate(args []string) {
 	client := &http.Client{Timeout: time.Duration(*timeoutSec) * time.Second}
 	resp, err := client.Post(fullURL, "application/json", bytes.NewReader(body))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		osExit(ExitConfigError)
+		failErrCode(ExitConfigError, err)
 	}
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode != 200 {
-		fmt.Fprintf(os.Stderr, "Sidecar returned HTTP %d: %s\n", resp.StatusCode, string(respBody))
-		osExit(ExitConfigError)
+		fail(ExitConfigError, "sidecar_rejected", fmt.Sprintf("sidecar returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody))))
 	}
 
 	fmt.Printf("Sidecar activated: %s\n", string(respBody))
@@ -93,7 +87,7 @@ func handleSidecarActivate(args []string) {
 }
 
 func printSidecarHelp() {
-	fmt.Println(`Usage: remotecmd-cli sidecar <command>
+	fmt.Fprintln(helpWriter(), `Usage: remotecmd-cli sidecar <command>
 
 Commands:
   activate --url <u> --relay <r> --code <c> [--activation-key <k>] [--name <n>] [--path <p>]
