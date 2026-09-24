@@ -76,6 +76,8 @@ func handleRelayDaemon(args []string) {
 		handleRelayDaemonStop()
 	case "status":
 		handleRelayDaemonStatus(args[1:])
+	case "update":
+		handleRelayDaemonUpdate(args[1:])
 	case "systemd":
 		handleRelaySystemdSubcommand(args[1:])
 	default:
@@ -153,6 +155,8 @@ func handleDaemonSubcommand(args []string) {
 		handleDaemonStop(args[1:])
 	case "status":
 		handleDaemonStatus(args[1:])
+	case "update":
+		handleDaemonUpdate(args[1:])
 	case persistenceSubcommandName():
 		handleDaemonPersistenceSubcommand(args[1:])
 	default:

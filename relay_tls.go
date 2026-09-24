@@ -11,6 +11,7 @@ import (
 func startRelayTLS(host string, port int, certFile, keyFile string) {
 	rs := newRelayFromEnv()
 	rs.port = port
+	go listenForRestartSignal(nil)
 
 	addr := relayListenAddr(host, port)
 	log.Printf("Relay listening on %s (TLS)", addr)

@@ -58,11 +58,13 @@
     "daemon (on targets)": [
       "remotecmd-cli daemon start [--token <t>] [--name <n>] [-daemon]",
       "remotecmd-cli daemon stop [--name <n>] | daemon status [--name <n>] [--json]",
+      "remotecmd-cli daemon update [--check] [--force]   (updates the binary the running daemon uses, then restarts it in place)",
       "remotecmd-cli daemon systemd install|remove   (schtasks on Windows)"
     ],
     "relay (on the hub)": [
       "remotecmd-cli relay daemon start [--port 3032] [--host <addr>] [-daemon] [--tls-cert <f> --tls-key <f>]",
       "remotecmd-cli relay daemon stop | relay daemon status [--json]   (health: GET /_health)",
+      "remotecmd-cli relay daemon update [--check] [--force]",
       "remotecmd-cli relay add-key <k> | remove-key <k> | list-keys"
     ],
     "meta": [
@@ -92,7 +94,8 @@
     "Exit codes are legacy: 1 = remote command failed, 2 = relay unreachable (retry), 3 = bad arguments or config, 4 = internal. Errors are JSON on stderr when stderr is not a terminal (RCMD_ERROR_FORMAT=json|text to force).",
     "A daemon reconnects every 5s; a dead link is noticed within about 60s by both ends via WebSocket pings, and dials give up after 10s.",
     "Two daemons on one machine: to join a second relay give it its own RCMD_CONFIG_DIR; to run under a second name on the same relay use daemon start --name <n>. With -daemon, pass the same --name to daemon stop/status, since each name gets its own PID file.",
-    "update verifies the release's sha256 and refuses to install on any doubt (exit 100)."
+    "update verifies the release's sha256 and refuses to install on any doubt (exit 100).",
+    "update replaces the CLI you invoked; daemon update / relay daemon update replace the binary the running daemon or relay actually executes (it may be a different file) and restart it in place — fleet-wide: rcx --group <g> 'remotecmd-cli daemon update'."
   ],
   "see_also": ["remotecmd-cli help-json", "remotecmd-cli help", "remotecmd-cli version"]
 }

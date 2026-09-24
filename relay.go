@@ -149,6 +149,7 @@ func newRelayFromEnv() *RelayServer {
 }
 
 func startRelay(host string, port int) {
+	go listenForRestartSignal(nil)
 	if err := newRelayFromEnv().ServeOn(host, port); err != nil {
 		log.Fatalf("Relay failed: %v", err)
 	}

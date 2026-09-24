@@ -272,54 +272,18 @@ func handleUpdate(args []string) {
 		osExit(exitUpdateAvail)
 	}
 
-	// Find the binary for this platform
-	dlURL, err := rel.findAsset()
-	if err != nil {
-		failErrCode(exitUpdateFail, err)
-	}
-
 	fmt.Fprintf(os.Stderr, "[update] %s → %s; downloading…\n", currentTag, latestTag)
 
-	// Get executable path
 	exe, err := os.Executable()
 	if err != nil {
 		failErrCode(exitUpdateFail, fmt.Errorf("cannot determine executable path: %w", err))
 	}
 	exe, _ = resolveSymlink(exe)
 
-	// Download to temp file in same directory (for atomic rename)
-	tmp := fmt.Sprintf("%s.new.%d", exe, os.Getpid())
-	if err := downloadFile(dlURL, tmp); err != nil {
-		failErrCode(exitUpdateFail, fmt.Errorf("download failed: %w", err))
-	}
-
-	// Verify hash against checksums.txt (fail closed)
-	if err := verifyReleaseChecksum(rel, tmp); err != nil {
-		os.Remove(tmp)
+	bak, err := installRelease(rel, exe)
+	if err != nil {
 		failErrCode(exitUpdateFail, err)
 	}
-
-	// Smoke test: the new binary must run `version`
-	os.Chmod(tmp, 0o755)
-	if err := smokeTestBinary(tmp); err != nil {
-		os.Remove(tmp)
-		failErrCode(exitUpdateFail, err)
-	}
-
-	// Atomic swap: current → .bak, new → in place
-	bak := exe + ".bak"
-	os.Remove(bak) // remove old .bak if exists
-	if err := os.Rename(exe, bak); err != nil {
-		os.Remove(tmp)
-		failErrCode(exitUpdateFail, fmt.Errorf("cannot move current binary to .bak: %w", err))
-	}
-	if err := os.Rename(tmp, exe); err != nil {
-		// Rollback
-		os.Rename(bak, exe)
-		os.Remove(tmp)
-		failErrCode(exitUpdateFail, fmt.Errorf("swap failed; rolled back: %w", err))
-	}
-	os.Chmod(exe, 0o755)
 
 	fmt.Fprintf(os.Stderr, "[update] updated %s → %s (backup: %s)\n", currentTag, latestTag, bak)
 	fmt.Printf(`{"ok":true,"updated":true,"from":"%s","to":"%s","backup":"%s"}`+"\n", currentTag, latestTag, bak)
@@ -373,4 +337,42 @@ func maybeNudge() {
 			fmt.Fprintf(os.Stderr, "[update] a newer remotecmd-cli is available (%s → %s). Run: remotecmd-cli update\n", Version, latestTag)
 		}
 	}()
+}
+
+// installRelease downloads rel's binary for this platform, verifies its
+// sha256 against the release's checksums.txt (fail closed), smoke-tests it,
+// and atomically swaps it in at exe, keeping the previous one as exe.bak.
+// A process already running exe keeps its old image until it restarts.
+func installRelease(rel *githubRelease, exe string) (bak string, err error) {
+	dlURL, err := rel.findAsset()
+	if err != nil {
+		return "", err
+	}
+	tmp := fmt.Sprintf("%s.new.%d", exe, os.Getpid())
+	if err := downloadFile(dlURL, tmp); err != nil {
+		os.Remove(tmp)
+		return "", fmt.Errorf("download failed: %w", err)
+	}
+	if err := verifyReleaseChecksum(rel, tmp); err != nil {
+		os.Remove(tmp)
+		return "", err
+	}
+	os.Chmod(tmp, 0o755)
+	if err := smokeTestBinary(tmp); err != nil {
+		os.Remove(tmp)
+		return "", err
+	}
+	bak = exe + ".bak"
+	os.Remove(bak)
+	if err := os.Rename(exe, bak); err != nil {
+		os.Remove(tmp)
+		return "", fmt.Errorf("cannot move current binary to .bak: %w", err)
+	}
+	if err := os.Rename(tmp, exe); err != nil {
+		os.Rename(bak, exe)
+		os.Remove(tmp)
+		return "", fmt.Errorf("swap failed; rolled back: %w", err)
+	}
+	os.Chmod(exe, 0o755)
+	return bak, nil
 }

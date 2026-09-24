@@ -63,6 +63,7 @@ DAEMON (run on target machine):
   remotecmd-cli daemon start --token <t> -daemon          Start target daemon (background)
   remotecmd-cli daemon stop [--name <n>]                 Stop target daemon
   remotecmd-cli daemon status [--name <n>] [--json]      Check target daemon status (--json: exit 3 if stopped)
+  remotecmd-cli daemon update [--check] [--force]        Update the running daemon's binary and restart it in place
   remotecmd-cli daemon %s install|remove             Install/remove persistent service
 
 PERSISTENT CLIENT:
@@ -108,6 +109,7 @@ Commands:
   start [--port <n>] [--host <addr>] [-daemon] [--tls-cert <file>] [--tls-key <file>]  Start relay hub
   stop                                                                                  Stop relay hub
   status [--json]                                                                       Check relay hub status
+  update [--check] [--force]                                                            Update the running relay's binary and restart it in place
   systemd install|remove                                                                Install/remove systemd service`)
 }
 
@@ -118,6 +120,7 @@ Commands:
   start [--token <t>] [--name <n>] [-daemon]   Start target daemon (--name: extra instance)
   stop [--name <n>]                            Stop target daemon
   status [--name <n>] [--json]                 Check target daemon status
+  update [--name <n>] [--check] [--force]      Update the running daemon's binary, restart in place
   %s install|remove             Install/remove persistent service
 `, persistenceSubcommandName())
 }

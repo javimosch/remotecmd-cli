@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -24,6 +25,8 @@ type TargetDaemon struct {
 	token     string
 	conn      *websocket.Conn
 	writeMu   sync.Mutex
+
+	inflight int64 // commands/transfers running; a restart waits for 0
 
 	reMu       sync.Mutex
 	reassembly map[string]*fileReassembly
@@ -63,6 +66,9 @@ func runDaemon(token, nameOverride string) {
 
 	// Listen for pair signal — used by "pair accept" to trigger immediate pair code re-check
 	go listenForPairSignal(td)
+	// SIGUSR2 (sent by `daemon update`): re-exec the binary on disk in
+	// place once in-flight commands — including the update itself — finish.
+	go listenForRestartSignal(td.waitIdle)
 
 	for {
 		td.run()
@@ -169,7 +175,11 @@ func (td *TargetDaemon) run() {
 
 		case "command":
 			log.Printf("Received command (id=%s, stream=%v): %s", msg.ID, msg.Stream, msg.Cmd)
-			go td.executeCommand(&msg)
+			atomic.AddInt64(&td.inflight, 1)
+			go func(m Message) {
+				defer atomic.AddInt64(&td.inflight, -1)
+				td.executeCommand(&m)
+			}(msg)
 
 		case "file_transfer":
 			log.Printf("Received file transfer (id=%s, mode=%s, chunked=%v): %s -> %s", msg.ID, msg.Mode, msg.Chunked, msg.SrcPath, msg.DstPath)
@@ -178,7 +188,11 @@ func (td *TargetDaemon) run() {
 				// follow on this connection always find it.
 				td.beginChunkedTransfer(&msg)
 			} else {
-				go td.handleFileTransfer(&msg)
+				atomic.AddInt64(&td.inflight, 1)
+				go func(m Message) {
+					defer atomic.AddInt64(&td.inflight, -1)
+					td.handleFileTransfer(&m)
+				}(msg)
 			}
 
 		case "file_chunk":
@@ -463,3 +477,14 @@ func (td *TargetDaemon) pairRetryLoop(stop chan struct{}) {
 }
 
 
+
+// waitIdle blocks until no command or transfer is running (at most 60s),
+// so a restart never cuts off a result — including the result of the
+// `daemon update` command that asked for the restart.
+func (td *TargetDaemon) waitIdle() {
+	deadline := time.Now().Add(60 * time.Second)
+	for atomic.LoadInt64(&td.inflight) > 0 && time.Now().Before(deadline) {
+		time.Sleep(100 * time.Millisecond)
+	}
+	time.Sleep(200 * time.Millisecond) // let the last result reach the relay
+}
