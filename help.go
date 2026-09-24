@@ -120,7 +120,7 @@ Commands:
   start [--token <t>] [--name <n>] [-daemon]   Start target daemon (--name: extra instance)
   stop [--name <n>]                            Stop target daemon
   status [--name <n>] [--json]                 Check target daemon status
-  update [--name <n>] [--check] [--force]      Update the running daemon's binary, restart in place
+  update [--name <n>] [--pid <n>] [--check] [--force]  Update the running daemon's binary, restart in place
   %s install|remove             Install/remove persistent service
 `, persistenceSubcommandName())
 }

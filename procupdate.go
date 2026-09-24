@@ -283,6 +283,7 @@ func handleProcUpdate(kind string, args []string) {
 	fs := flag.NewFlagSet(fsName, flag.ExitOnError)
 	check := fs.Bool("check", false, "report what would change; exit 5 if an update is available")
 	force := fs.Bool("force", false, "reinstall and restart even if already up to date")
+	onlyPID := fs.Int("pid", 0, "only the process with this PID (e.g. the one daemon started without --name)")
 	var name *string
 	if kind == "daemon" {
 		name = fs.String("name", "", "only the instance started with this --name")
@@ -293,6 +294,13 @@ func handleProcUpdate(kind string, args []string) {
 	fs.Parse(args)
 
 	procs := findRunning(kind, *name)
+	if *onlyPID != 0 && len(procs) > 0 {
+		selected, err := selectPID(procs, *onlyPID)
+		if err != nil {
+			fail(ExitConfigError, "not_found", err.Error(), "remotecmd-cli "+map[string]string{"daemon": "daemon", "relay": "relay daemon"}[kind]+" update --check   (lists them)")
+		}
+		procs = selected
+	}
 	if len(procs) == 0 {
 		fail(ExitConfigError, "not_found", "no running "+kind+" found on this machine",
 			"remotecmd-cli "+map[string]string{"daemon": "daemon", "relay": "relay daemon"}[kind]+" start", "remotecmd-cli update   (update this CLI binary only)")
@@ -448,4 +456,18 @@ func splitWindowsCommandLine(s string) []string {
 		args = append(args, cur.String())
 	}
 	return args
+}
+
+// selectPID narrows procs to the one with pid. Needed on machines running
+// several daemons from different binaries (radioalto: one unnamed, one
+// --name radioalto-prod-2), where "no --name" otherwise means all of them.
+func selectPID(procs []runningProc, pid int) ([]runningProc, error) {
+	var found []string
+	for _, p := range procs {
+		if p.PID == pid {
+			return []runningProc{p}, nil
+		}
+		found = append(found, strconv.Itoa(p.PID))
+	}
+	return nil, fmt.Errorf("no running daemon with pid %d (found: %s)", pid, strings.Join(found, ", "))
 }

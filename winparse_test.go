@@ -2,6 +2,7 @@ package main
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -39,5 +40,17 @@ func TestParseWindowsProcs(t *testing.T) {
 	one := parseWindowsProcs(`{"ProcessId":3464,"ExecutablePath":"C:\\rc.exe","CommandLine":"C:\\rc.exe daemon start"}`, "daemon", "", 1)
 	if len(one) != 1 || one[0].PID != 3464 {
 		t.Errorf("single-object JSON: got %+v", one)
+	}
+}
+
+// radioalto runs an unnamed daemon and a --name one; --pid picks just one.
+func TestSelectPID(t *testing.T) {
+	procs := parseWindowsProcs(radioaltoCIM, "daemon", "", 4242)
+	got, err := selectPID(procs, 3464)
+	if err != nil || len(got) != 1 || got[0].Exe != `C:\Windows\System32\remotecmd-cli.exe` {
+		t.Errorf("selectPID(3464) = %+v, %v", got, err)
+	}
+	if _, err := selectPID(procs, 1); err == nil || !strings.Contains(err.Error(), "2732") || !strings.Contains(err.Error(), "3464") {
+		t.Errorf("unknown pid should list the candidates, got %v", err)
 	}
 }
