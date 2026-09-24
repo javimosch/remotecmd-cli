@@ -21,6 +21,9 @@ func captureStdout(t *testing.T, fn func()) string {
 		t.Fatalf("pipe: %v", err)
 	}
 	os.Stdout = w
+	// Restore even if fn panics (osExit panics in tests): a leaked pipe as
+	// os.Stdout breaks later output, e.g. go test's coverage report.
+	defer func() { os.Stdout = old }()
 	fn()
 	w.Close()
 	os.Stdout = old
