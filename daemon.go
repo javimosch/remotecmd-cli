@@ -129,9 +129,10 @@ func (td *TargetDaemon) run() {
 	}()
 
 	td.send(&Message{
-		Type:  "register",
-		Name:  td.name,
-		Token: td.token,
+		Type:          "register",
+		Name:          td.name,
+		Token:         td.token,
+		DaemonVersion: Version, // lets the relay log which build each node runs
 	})
 
 	for {

@@ -59,7 +59,7 @@ func (ctx *wsContext) handleRegister(msg *Message) bool {
 	ctx.rs.clients[msg.Name] = ctx.rc
 	ctx.rs.mu.Unlock()
 	ctx.rc.send(&Message{Type: "registered", Name: msg.Name})
-	log.Printf("Target registered: %s", msg.Name)
+	log.Printf("Target registered: %s (%s)", msg.Name, registeredVersion(msg.DaemonVersion))
 	return false
 }
 
@@ -426,4 +426,13 @@ func remoteAddr(rc *relayClient) string {
 		return "unknown"
 	}
 	return rc.conn.RemoteAddr().String()
+}
+
+// registeredVersion labels a daemon's build in relay logs; daemons older
+// than the daemon_version field register without one.
+func registeredVersion(v string) string {
+	if v == "" {
+		return "version unknown: pre-2.6 daemon"
+	}
+	return "v" + v
 }
