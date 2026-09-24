@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gorilla/websocket"
 )
@@ -155,5 +156,24 @@ func TestListTargetsKeepsVersionWhileDown(t *testing.T) {
 	c, _ := loadHealthCache()
 	if h := c.Targets["gone"]; h.Status != "down" || h.Version != "1.0.0" {
 		t.Errorf("cache = %+v, want down with version 1.0.0 kept", h)
+	}
+}
+
+func TestPrintAlignedTableColumnsLineUp(t *testing.T) {
+	out := captureStdout(t, func() {
+		printAlignedTable([][]string{
+			{"TARGET", "STATUS", "VERSION", "HOSTNAME"},
+			{"mikavm3 → PRINTER-BOT-V1", "up", "2.6.0-dev+2bc1968", "PRINTER-BOT-V1"},
+			{"dk1", "up", "2.4.1*", "vpspoly1"},
+		})
+	})
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) != 4 || !strings.HasPrefix(lines[1], "---") {
+		t.Fatalf("table = %q", out)
+	}
+	// The last column starts at the same rune offset on every row.
+	col := func(l, cell string) int { return utf8.RuneCountInString(l[:strings.LastIndex(l, cell)]) }
+	if a, b, c := col(lines[0], "HOSTNAME"), col(lines[2], "PRINTER-BOT-V1"), col(lines[3], "vpspoly1"); a != b || b != c {
+		t.Errorf("HOSTNAME column misaligned: %d %d %d\n%s", a, b, c, out)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // healthCheckInterval is the minimum age after which a cached target health
@@ -278,8 +279,7 @@ func printHealthTable(cfg *Config, cache *HealthCache, aliasNames []string) erro
 	if len(aliasNames) == 0 {
 		fmt.Println("No targets configured")
 	} else {
-		fmt.Printf("%-22s %-7s %-18s %-10s %s\n", "TARGET", "STATUS", "SEEN", "VERSION", "HOSTNAME")
-		fmt.Printf("%s\n", strings.Repeat("-", 81))
+		rows := [][]string{{"TARGET", "STATUS", "SEEN", "VERSION", "HOSTNAME"}}
 		for _, alias := range aliasNames {
 			tgt := cfg.Targets[alias]
 			h := cache.Targets[alias]
@@ -316,8 +316,9 @@ func printHealthTable(cfg *Config, cache *HealthCache, aliasNames []string) erro
 				version += "*" // older than this client
 			}
 
-			fmt.Printf("%-22s %-7s %-18s %-10s %s\n", displayName, status, seen, version, hostname)
+			rows = append(rows, []string{displayName, status, seen, version, hostname})
 		}
+		printAlignedTable(rows)
 	}
 
 	if len(aliasNames) > 0 {
@@ -364,4 +365,45 @@ func agoString(d time.Duration) string {
 		return "just now"
 	}
 	return h + " ago"
+}
+
+// printAlignedTable prints rows with each column (except the last) padded
+// to its widest cell, counted in runes so "→" in relay-name aliases and
+// long dev versions like 2.6.0-dev+2bc1968 stay aligned. A rule line
+// follows the header.
+func printAlignedTable(rows [][]string) {
+	if len(rows) == 0 {
+		return
+	}
+	widths := make([]int, len(rows[0]))
+	for _, r := range rows {
+		for i, c := range r {
+			if n := utf8.RuneCountInString(c); n > widths[i] {
+				widths[i] = n
+			}
+		}
+	}
+	line := func(r []string) string {
+		var b strings.Builder
+		for i, c := range r {
+			if i == len(r)-1 {
+				b.WriteString(c)
+				break
+			}
+			b.WriteString(c)
+			b.WriteString(strings.Repeat(" ", widths[i]-utf8.RuneCountInString(c)+1))
+		}
+		return b.String()
+	}
+	fmt.Println(line(rows[0]))
+	total := 0
+	for _, r := range rows {
+		if n := utf8.RuneCountInString(line(r)); n > total {
+			total = n
+		}
+	}
+	fmt.Println(strings.Repeat("-", total))
+	for _, r := range rows[1:] {
+		fmt.Println(line(r))
+	}
 }
