@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -300,7 +301,7 @@ func handleUpdate(args []string) {
 
 	bak, err := installRelease(rel, exe)
 	if err != nil {
-		failErrCode(exitUpdateFail, err)
+		failInstall(err)
 	}
 
 	fmt.Fprintf(os.Stderr, "[update] updated %s → %s (backup: %s)\n", currentTag, latestTag, bak)
@@ -371,6 +372,9 @@ func installRelease(rel *githubRelease, exe string) (bak string, err error) {
 	tmp := fmt.Sprintf("%s.new.%d", exe, os.Getpid())
 	if err := downloadFile(dlURL, tmp); err != nil {
 		os.Remove(tmp)
+		if os.IsPermission(err) {
+			return "", &updatePermissionError{dir: filepath.Dir(exe), err: err}
+		}
 		return "", fmt.Errorf("download failed: %w", err)
 	}
 	if err := verifyReleaseChecksum(rel, tmp, asset); err != nil {
@@ -422,4 +426,32 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	return os.Rename(tmp, dst)
+}
+
+// updatePermissionError: the swap file can't be created next to the binary,
+// typically a daemon running as a non-root user from root-owned
+// /usr/local/bin (seen on dk2 and rb-master). Retrying won't help; running
+// the same command with sudo will.
+type updatePermissionError struct {
+	dir string
+	err error
+}
+
+func (e *updatePermissionError) Error() string {
+	return fmt.Sprintf("cannot write to %s: %v", e.dir, e.err)
+}
+
+func (e *updatePermissionError) Unwrap() error { return e.err }
+
+// failInstall reports an installRelease error: a permission problem as a
+// non-retryable typed error suggesting the exact command under sudo,
+// anything else as a (retryable) update failure.
+func failInstall(err error) {
+	var perm *updatePermissionError
+	if errors.As(err, &perm) {
+		fail(ExitConfigError, "permission_denied", perm.Error(),
+			"sudo -n "+strings.Join(os.Args, " "),
+			"or run it as a user that can write to "+perm.dir)
+	}
+	failErrCode(exitUpdateFail, err)
 }

@@ -328,7 +328,7 @@ func handleProcUpdate(kind string, args []string) {
 			fmt.Fprintf(os.Stderr, "[update] %s: %s → %s\n", exe, br.OnDisk, latest)
 			bak, err := installRelease(rel, exe)
 			if err != nil {
-				failErrCode(exitUpdateFail, fmt.Errorf("%s: %w", exe, err))
+				failInstall(err)
 			}
 			br.Installed, br.Backup = true, bak
 		}

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -199,6 +200,32 @@ func TestInstallReleaseRefusesBadChecksum(t *testing.T) {
 	}
 	if v := parseDaemonVersion(runQuiet(exe, "version")); v != "1.0.0" {
 		t.Errorf("original binary must stay in place, reports %q", v)
+	}
+}
+
+// A binary in a directory we can't write to fails with a typed,
+// non-retryable permission error that suggests sudo.
+func TestInstallReleasePermissionSuggestsSudo(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can write anywhere")
+	}
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "remotecmd-cli")
+	os.WriteFile(exe, []byte("#!/bin/sh\necho 'remotecmd-cli version 1.0.0'\n"), 0o755)
+	os.Chmod(dir, 0o555)
+	defer os.Chmod(dir, 0o755)
+
+	_, err := installRelease(fakeReleaseServer(t, "9.9.9", false), exe)
+	var perm *updatePermissionError
+	if !errors.As(err, &perm) || perm.dir != dir {
+		t.Fatalf("err = %v, want updatePermissionError for %s", err, dir)
+	}
+	code, body := captureError(t, func() { failInstall(err) })
+	e := body["error"].(map[string]any)
+	s, _ := e["suggestions"].([]any)
+	if code != ExitConfigError || e["type"] != "permission_denied" || e["recoverable"] != false ||
+		len(s) == 0 || !strings.HasPrefix(s[0].(string), "sudo -n ") {
+		t.Errorf("exit %d error %v", code, e)
 	}
 }
 
