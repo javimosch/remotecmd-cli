@@ -13,7 +13,7 @@ import "runtime/debug"
 // above the previous release and below the next one, and list-targets, the
 // update nudge and `version` can tell it apart from a real release.
 // Bump nextVersion right after tagging a release.
-const nextVersion = "2.6.0"
+const nextVersion = "2.7.0"
 
 // releaseVersion is set by -ldflags -X for release builds; empty otherwise.
 // It must stay a var: -X silently does nothing to a const.
