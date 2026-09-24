@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -33,6 +34,7 @@ type runningProc struct {
 	PID       int      `json:"pid"`
 	Exe       string   `json:"exe"`
 	Args      []string `json:"-"`
+	Kind      string   `json:"-"` // daemon | relay
 	Unit      string   `json:"unit,omitempty"`
 	UserUnit  bool     `json:"user_unit,omitempty"`
 	Version   string   `json:"version"`
@@ -101,6 +103,9 @@ func unitFromCgroup(cgroup string) (unit string, user bool) {
 // /proc, which also finds systemd-managed processes that have no PID
 // file; elsewhere it falls back to the -daemon PID file.
 func findRunning(kind, name string) []runningProc {
+	if runtime.GOOS == "windows" {
+		return findRunningWindows(kind, name)
+	}
 	if entries, err := os.ReadDir("/proc"); err == nil {
 		var out []runningProc
 		self := os.Getpid()
@@ -121,7 +126,7 @@ func findRunning(kind, name string) []runningProc {
 			if err != nil {
 				continue // not ours to manage (other user)
 			}
-			p := runningProc{PID: pid, Exe: strings.TrimSuffix(exe, " (deleted)"), Args: argv}
+			p := runningProc{PID: pid, Exe: strings.TrimSuffix(exe, " (deleted)"), Args: argv, Kind: kind}
 			if cg, err := os.ReadFile(filepath.Join("/proc", e.Name(), "cgroup")); err == nil {
 				p.Unit, p.UserUnit = supervisingUnit(pid, string(cg))
 			}
@@ -136,7 +141,10 @@ func findRunning(kind, name string) []runningProc {
 	}
 	if ok, pid := isRunning(pidFile); ok {
 		exe, _ := os.Executable()
-		p := runningProc{PID: pid, Exe: exe}
+		p := runningProc{PID: pid, Exe: exe, Args: []string{exe, kind, "start"}, Kind: kind}
+		if kind == "relay" {
+			p.Args = []string{exe, "relay", "daemon", "start"}
+		}
 		probeRunning(&p, exe)
 		return []runningProc{p}
 	}
@@ -169,7 +177,9 @@ func inOurNamespaces(pid int) bool {
 // knows the SIGUSR2 in-place restart (added together with `daemon update`).
 func probeRunning(p *runningProc, runningBinary string) {
 	p.Version = parseDaemonVersion(runQuiet(runningBinary, "version"))
-	p.CanReexec = strings.Contains(runQuiet(runningBinary, "help-json"), `"daemon update"`)
+	// Windows has no exec-in-place, whatever the binary's version.
+	p.CanReexec = runtime.GOOS != "windows" &&
+		strings.Contains(runQuiet(runningBinary, "help-json"), `"daemon update"`)
 }
 
 // supervisingUnit returns the systemd unit that supervises pid, if any. A
@@ -208,7 +218,7 @@ func runQuiet(bin string, args ...string) string {
 
 type restartResult struct {
 	PID    int    `json:"pid"`
-	Method string `json:"method"` // reexec | systemd | manual
+	Method string `json:"method"` // reexec | systemd | helper | manual
 	OK     bool   `json:"ok"`
 	Note   string `json:"note,omitempty"`
 }
@@ -228,8 +238,21 @@ func restartProc(p runningProc) restartResult {
 		}
 		return restartResult{p.PID, "systemd", true, "unit " + p.Unit + " restarts in 2s"}
 	}
-	return restartResult{p.PID, "manual", false,
-		"this process predates in-place restart and has no supervisor: restart it once by hand; later updates restart it automatically"}
+	// No re-exec and no supervisor (Windows, or an unsupervised pre-2.6
+	// process): a detached helper restarts it, rolling back on failure.
+	kind := p.Kind
+	if kind == "" {
+		kind = "daemon"
+	}
+	if len(p.Args) == 0 {
+		return restartResult{p.PID, "manual", false, "command line unknown: restart it by hand"}
+	}
+	logPath, err := spawnRestartHelper(p, kind)
+	if err != nil {
+		return restartResult{p.PID, "manual", false, "could not start the restart helper (" + err.Error() + "): restart it by hand"}
+	}
+	return restartResult{p.PID, "helper", true,
+		"restarts in ~3s via a detached helper that rolls back to the .bak binary if the new one doesn't come up; log: " + logPath}
 }
 
 // restartTimerArgs builds the systemd-run call that restarts p's unit 2s
@@ -353,4 +376,76 @@ func handleProcUpdate(kind string, args []string) {
 	case !*check && !allOK:
 		osExit(ExitConfigError) // installed, but a restart needs a human
 	}
+}
+
+// findRunningWindows lists our daemons (or relays) through CIM: Windows has
+// no /proc. It shells out to PowerShell, present on every supported
+// Windows, rather than adding a Win32 API dependency.
+func findRunningWindows(kind, name string) []runningProc {
+	ps := `Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath } | ` +
+		`Select-Object ProcessId,ExecutablePath,CommandLine | ConvertTo-Json -Compress`
+	raw := runQuiet("powershell", "-NoProfile", "-NonInteractive", "-Command", ps)
+	var out []runningProc
+	for _, p := range parseWindowsProcs(raw, kind, name, os.Getpid()) {
+		probeRunning(&p, p.Exe)
+		out = append(out, p)
+	}
+	return out
+}
+
+// parseWindowsProcs picks our processes out of ConvertTo-Json output
+// (an object for one process, an array for several).
+func parseWindowsProcs(raw, kind, name string, self int) []runningProc {
+	type cim struct {
+		ProcessId      int
+		ExecutablePath string
+		CommandLine    string
+	}
+	var list []cim
+	raw = strings.TrimSpace(raw)
+	if strings.HasPrefix(raw, "{") {
+		var one cim
+		if json.Unmarshal([]byte(raw), &one) == nil {
+			list = []cim{one}
+		}
+	} else {
+		json.Unmarshal([]byte(raw), &list)
+	}
+	var out []runningProc
+	for _, c := range list {
+		argv := splitWindowsCommandLine(c.CommandLine)
+		if c.ProcessId == self || !matchesProc(argv, kind, name) {
+			continue
+		}
+		argv[0] = c.ExecutablePath // the full path, even if launched by a relative name
+		out = append(out, runningProc{PID: c.ProcessId, Exe: c.ExecutablePath, Args: argv, Kind: kind})
+	}
+	return out
+}
+
+// splitWindowsCommandLine splits a command line on spaces, honouring
+// double quotes (enough for the launchers we create; not full MSVCRT rules).
+func splitWindowsCommandLine(s string) []string {
+	var args []string
+	var cur strings.Builder
+	inQuote, have := false, false
+	for _, r := range s {
+		switch {
+		case r == '"':
+			inQuote, have = !inQuote, true
+		case (r == ' ' || r == '\t') && !inQuote:
+			if have {
+				args = append(args, cur.String())
+				cur.Reset()
+				have = false
+			}
+		default:
+			cur.WriteRune(r)
+			have = true
+		}
+	}
+	if have {
+		args = append(args, cur.String())
+	}
+	return args
 }

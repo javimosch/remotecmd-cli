@@ -386,3 +386,132 @@ func TestDaemonRestartsInPlaceAfterInflightCommand(t *testing.T) {
 		t.Errorf("daemon PID %d gone after restart: %v", d.Process.Pid, err)
 	}
 }
+
+// ---- restart helper (unsupervised processes, and Windows) ----
+
+// startUnsupervisedDaemon runs exe as a daemon on relay the way a hand-
+// started node does (no supervisor), returning its PID.
+func startUnsupervisedDaemon(t *testing.T, exe, dir, relay string) (int, []string) {
+	t.Helper()
+	env := append(os.Environ(), "HOME="+dir, "RCMD_CONFIG_DIR="+filepath.Join(dir, "cfg"))
+	if out, err := (&exec.Cmd{Path: exe, Args: []string{exe, "set-relay", "--url", relay, "--name", "box"}, Env: env}).CombinedOutput(); err != nil {
+		t.Fatalf("set-relay: %v %s", err, out)
+	}
+	d := exec.Command(exe, "daemon", "start", "--token", "tok")
+	d.Env = env
+	d.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := d.Start(); err != nil {
+		t.Fatal(err)
+	}
+	go d.Wait()
+	return d.Process.Pid, []string{exe, "daemon", "start", "--token", "tok"}
+}
+
+// helperResult waits for the helper's final line and returns it; it also
+// kills the daemon the helper started once the test ends.
+func helperResult(t *testing.T, logPath string) string {
+	t.Helper()
+	var last string
+	waitFor(t, "helper RESULT", func() bool {
+		b, _ := os.ReadFile(logPath)
+		for _, l := range strings.Split(string(b), "\n") {
+			if strings.Contains(l, "RESULT:") {
+				last = l
+			}
+		}
+		return last != ""
+	})
+	if i := strings.LastIndex(last, "pid "); i >= 0 {
+		var pid int
+		fmt.Sscanf(last[i+4:], "%d", &pid)
+		if pid > 0 {
+			t.Cleanup(func() { syscall.Kill(pid, syscall.SIGKILL) })
+		}
+	}
+	return last
+}
+
+func TestRestartHelperReplacesUnsupervisedDaemon(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds binaries")
+	}
+	_, cleanup := setupTestConfig(t)
+	defer cleanup()
+	_, port := startTestRelay(t)
+	relay := fmt.Sprintf("http://127.0.0.1:%d", port)
+	dir := t.TempDir()
+	v1, v2 := buildBinary(t, dir, "7.0.0-a"), buildBinary(t, dir, "7.0.0-b")
+	exe := filepath.Join(dir, "remotecmd-cli")
+	copyFile(v1, exe)
+
+	pid, argv := startUnsupervisedDaemon(t, exe, dir, relay)
+	defer syscall.Kill(pid, syscall.SIGKILL)
+	setRelay(relay, "tester")
+	addTarget("box", "tok")
+	runOn := func(c string) string {
+		return captureStdout(t, func() { handleExecWithStdin("box", c, 20, false, nil) })
+	}
+	waitFor(t, "daemon v1", func() bool { return strings.Contains(runOn("true"), `"daemon_version": "7.0.0-a"`) })
+
+	if _, err := installRelease(releaseServing(t, "7.0.0-b", v2), exe); err != nil {
+		t.Fatal(err)
+	}
+	old := helperExecutable
+	helperExecutable = func() (string, error) { return exe, nil }
+	defer func() { helperExecutable = old }()
+
+	r := restartProc(runningProc{PID: pid, Exe: exe, Args: argv, Kind: "daemon"})
+	if !r.OK || r.Method != "helper" {
+		t.Fatalf("restartProc = %+v", r)
+	}
+	logPath := r.Note[strings.LastIndex(r.Note, "log: ")+5:]
+	if res := helperResult(t, logPath); !strings.Contains(res, "RESULT: new daemon running") {
+		t.Fatalf("helper: %s", res)
+	}
+	waitFor(t, "daemon v2", func() bool { return strings.Contains(runOn("true"), `"daemon_version": "7.0.0-b"`) })
+	if processAlive(pid) {
+		t.Errorf("old daemon %d still running", pid)
+	}
+}
+
+// The new binary passes the smoke test but dies on start: the helper must
+// restore the .bak binary and bring the previous daemon back.
+func TestRestartHelperRollsBack(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds binaries")
+	}
+	_, cleanup := setupTestConfig(t)
+	defer cleanup()
+	_, port := startTestRelay(t)
+	relay := fmt.Sprintf("http://127.0.0.1:%d", port)
+	dir := t.TempDir()
+	v1 := buildBinary(t, dir, "7.0.0-a")
+	exe := filepath.Join(dir, "remotecmd-cli")
+	copyFile(v1, exe)
+
+	pid, argv := startUnsupervisedDaemon(t, exe, dir, relay)
+	defer syscall.Kill(pid, syscall.SIGKILL)
+	setRelay(relay, "tester")
+	addTarget("box", "tok")
+	runOn := func(c string) string {
+		return captureStdout(t, func() { handleExecWithStdin("box", c, 20, false, nil) })
+	}
+	waitFor(t, "daemon v1", func() bool { return strings.Contains(runOn("true"), `"daemon_version": "7.0.0-a"`) })
+
+	broken := filepath.Join(dir, "broken")
+	os.WriteFile(broken, []byte("#!/bin/sh\n[ \"$1\" = version ] && echo 'remotecmd-cli version 7.0.0-b' && exit 0\nexit 1\n"), 0o755)
+	if _, err := installRelease(releaseServing(t, "7.0.0-b", broken), exe); err != nil {
+		t.Fatal(err)
+	}
+	old := helperExecutable
+	helperExecutable = func() (string, error) { return v1, nil } // exe is broken now
+	defer func() { helperExecutable = old }()
+
+	r := restartProc(runningProc{PID: pid, Exe: exe, Args: argv, Kind: "daemon"})
+	logPath := r.Note[strings.LastIndex(r.Note, "log: ")+5:]
+	if res := helperResult(t, logPath); !strings.Contains(res, "RESULT: rolled back") {
+		b, _ := os.ReadFile(logPath)
+		t.Fatalf("helper: %s\n%s", res, b)
+	}
+	waitFor(t, "daemon back on v1", func() bool { return strings.Contains(runOn("true"), `"daemon_version": "7.0.0-a"`) })
+}

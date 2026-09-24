@@ -369,7 +369,8 @@ func installRelease(rel *githubRelease, exe string) (bak string, err error) {
 	if err != nil {
 		return "", err
 	}
-	tmp := fmt.Sprintf("%s.new.%d", exe, os.Getpid())
+	// On Windows the temp file keeps .exe so the smoke test can run it.
+	tmp := fmt.Sprintf("%s.new.%d%s", strings.TrimSuffix(exe, winExeExt(exe)), os.Getpid(), winExeExt(exe))
 	if err := downloadFile(dlURL, tmp); err != nil {
 		os.Remove(tmp)
 		if os.IsPermission(err) {
@@ -390,6 +391,23 @@ func installRelease(rel *githubRelease, exe string) (bak string, err error) {
 	if err := copyFile(exe, bak); err != nil {
 		os.Remove(tmp)
 		return "", fmt.Errorf("cannot back up current binary: %w", err)
+	}
+	if runtime.GOOS == "windows" {
+		// Windows won't replace a running .exe, but it will rename it:
+		// move it aside (the process keeps running from it), then put the
+		// new one in place. The restart helper later runs the new file.
+		old := exe + ".old"
+		os.Remove(old) // left by a previous update; free once that process is gone
+		if err := os.Rename(exe, old); err != nil {
+			os.Remove(tmp)
+			return "", fmt.Errorf("cannot move the running binary aside: %w", err)
+		}
+		if err := os.Rename(tmp, exe); err != nil {
+			os.Rename(old, exe)
+			os.Remove(tmp)
+			return "", fmt.Errorf("swap failed, current binary restored: %w", err)
+		}
+		return bak, nil
 	}
 	// rename(2) over exe is atomic: the path now names the new binary,
 	// while a running process keeps its (now unlinked) old image.
@@ -454,4 +472,12 @@ func failInstall(err error) {
 			"or run it as a user that can write to "+perm.dir)
 	}
 	failErrCode(exitUpdateFail, err)
+}
+
+// winExeExt returns ".exe" for a Windows binary path, "" otherwise.
+func winExeExt(exe string) string {
+	if runtime.GOOS == "windows" && strings.EqualFold(filepath.Ext(exe), ".exe") {
+		return filepath.Ext(exe)
+	}
+	return ""
 }

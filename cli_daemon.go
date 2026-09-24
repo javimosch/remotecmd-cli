@@ -157,6 +157,8 @@ func handleDaemonSubcommand(args []string) {
 		handleDaemonStatus(args[1:])
 	case "update":
 		handleDaemonUpdate(args[1:])
+	case "restart-helper": // internal: spawned by `daemon update`
+		handleRestartHelper(args[1:])
 	case persistenceSubcommandName():
 		handleDaemonPersistenceSubcommand(args[1:])
 	default:
