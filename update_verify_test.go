@@ -42,7 +42,7 @@ func TestVerifyReleaseChecksumOK(t *testing.T) {
 	path, digest := writeBinary(t, "good binary")
 	for _, sep := range []string{"  ", " *"} { // sha256sum text and -b modes
 		rel := fakeRelease(t, 200, "deadbeef  other-asset\n"+digest+sep+assetNameForPlatform()+"\n")
-		if err := verifyReleaseChecksum(rel, path); err != nil {
+		if err := verifyReleaseChecksum(rel, path, assetNameForPlatform()); err != nil {
 			t.Errorf("sep %q: expected success, got %v", sep, err)
 		}
 	}
@@ -66,7 +66,7 @@ func TestVerifyReleaseChecksumFailsClosed(t *testing.T) {
 		{"hash mismatch", fakeRelease(t, 200, otherDigest+"  "+asset+"\n"), "hash mismatch"},
 	}
 	for _, tc := range cases {
-		err := verifyReleaseChecksum(tc.rel, path)
+		err := verifyReleaseChecksum(tc.rel, path, assetNameForPlatform())
 		if err == nil {
 			t.Errorf("%s: expected refusal, got nil", tc.name)
 			continue
@@ -81,7 +81,7 @@ func TestVerifyReleaseChecksumUnreachable(t *testing.T) {
 	path, _ := writeBinary(t, "good binary")
 	rel := fakeRelease(t, 200, "")
 	rel.Assets[0].BrowserDownloadURL = "http://127.0.0.1:1/checksums.txt" // nothing listens on :1
-	if err := verifyReleaseChecksum(rel, path); err == nil || !strings.Contains(err.Error(), "cannot fetch") {
+	if err := verifyReleaseChecksum(rel, path, assetNameForPlatform()); err == nil || !strings.Contains(err.Error(), "cannot fetch") {
 		t.Errorf("expected fetch failure refusal, got %v", err)
 	}
 }

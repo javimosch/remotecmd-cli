@@ -97,18 +97,37 @@ func latestReleaseViaHTTP() (*githubRelease, error) {
 
 // assetNameForPlatform returns the expected asset name for the current OS/arch.
 func assetNameForPlatform() string {
-	return fmt.Sprintf("remotecmd-cli-%s-%s", runtime.GOOS, runtime.GOARCH)
+	return assetCandidates(runtime.GOOS, runtime.GOARCH)[0]
+}
+
+// assetCandidates lists the release asset names that fit a platform, best
+// first. Linux prefers the static build: it runs on musl (Alpine, e.g.
+// supergato) as well as glibc, where the default build fails the smoke
+// test. The plain name stays as a fallback for releases without -static.
+// Windows assets carry .exe.
+func assetCandidates(goos, goarch string) []string {
+	base := fmt.Sprintf("remotecmd-cli-%s-%s", goos, goarch)
+	switch goos {
+	case "linux":
+		return []string{base + "-static", base}
+	case "windows":
+		return []string{base + ".exe"}
+	}
+	return []string{base}
 }
 
 // findAsset returns the download URL for the current platform's binary.
-func (rel *githubRelease) findAsset() (string, error) {
-	want := assetNameForPlatform()
-	for _, a := range rel.Assets {
-		if a.Name == want {
-			return a.BrowserDownloadURL, nil
+// It returns the asset's name too: the checksum must be looked up under
+// the asset actually downloaded.
+func (rel *githubRelease) findAsset() (url, name string, err error) {
+	for _, want := range assetCandidates(runtime.GOOS, runtime.GOARCH) {
+		for _, a := range rel.Assets {
+			if a.Name == want {
+				return a.BrowserDownloadURL, a.Name, nil
+			}
 		}
 	}
-	return "", fmt.Errorf("no binary for %s/%s in release %s", runtime.GOOS, runtime.GOARCH, rel.TagName)
+	return "", "", fmt.Errorf("no binary for %s/%s in release %s", runtime.GOOS, runtime.GOARCH, rel.TagName)
 }
 
 // findChecksumsURL returns the URL for checksums.txt if present.
@@ -196,7 +215,7 @@ func fetchChecksums(url string) (map[string]string, error) {
 // or unparseable file, or no entry for this platform all refuse the update.
 // Installing an unverified binary on a remote-exec tool is never the safe
 // default — a truncated or swapped artifact would run on every node.
-func verifyReleaseChecksum(rel *githubRelease, path string) error {
+func verifyReleaseChecksum(rel *githubRelease, path, asset string) error {
 	url := rel.findChecksumsURL()
 	if url == "" {
 		return fmt.Errorf("release %s has no checksums.txt — refusing to install an unverified binary", rel.TagName)
@@ -205,7 +224,6 @@ func verifyReleaseChecksum(rel *githubRelease, path string) error {
 	if err != nil {
 		return fmt.Errorf("cannot fetch checksums.txt: %w", err)
 	}
-	asset := assetNameForPlatform()
 	want, ok := checksums[asset]
 	if !ok {
 		return fmt.Errorf("checksums.txt has no entry for %s", asset)
@@ -346,7 +364,7 @@ func maybeNudge() {
 // the running file would make the running process's /proc/self/exe follow
 // it to .bak, so an in-place restart would re-exec the old binary.
 func installRelease(rel *githubRelease, exe string) (bak string, err error) {
-	dlURL, err := rel.findAsset()
+	dlURL, asset, err := rel.findAsset()
 	if err != nil {
 		return "", err
 	}
@@ -355,7 +373,7 @@ func installRelease(rel *githubRelease, exe string) (bak string, err error) {
 		os.Remove(tmp)
 		return "", fmt.Errorf("download failed: %w", err)
 	}
-	if err := verifyReleaseChecksum(rel, tmp); err != nil {
+	if err := verifyReleaseChecksum(rel, tmp, asset); err != nil {
 		os.Remove(tmp)
 		return "", err
 	}

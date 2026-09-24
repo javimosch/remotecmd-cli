@@ -3,6 +3,8 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -144,7 +146,7 @@ func TestFindAsset(t *testing.T) {
 			{Name: assetNameForPlatform(), BrowserDownloadURL: "https://example.com/binary"},
 		},
 	}
-	url, err := rel.findAsset()
+	url, _, err := rel.findAsset()
 	if err != nil {
 		t.Fatalf("findAsset: %v", err)
 	}
@@ -163,7 +165,7 @@ func TestFindAssetNotFound(t *testing.T) {
 			{Name: "checksums.txt", BrowserDownloadURL: "https://example.com/checksums.txt"},
 		},
 	}
-	_, err := rel.findAsset()
+	_, _, err := rel.findAsset()
 	if err == nil {
 		t.Error("expected error for missing platform asset")
 	}
@@ -226,4 +228,47 @@ func TestMaybeNudgeRespectsEnvVar(t *testing.T) {
 
 	// Should return immediately without panicking
 	maybeNudge()
+}
+
+func TestAssetCandidates(t *testing.T) {
+	cases := map[string][]string{
+		"linux/amd64":   {"remotecmd-cli-linux-amd64-static", "remotecmd-cli-linux-amd64"},
+		"linux/arm64":   {"remotecmd-cli-linux-arm64-static", "remotecmd-cli-linux-arm64"},
+		"windows/amd64": {"remotecmd-cli-windows-amd64.exe"},
+		"darwin/arm64":  {"remotecmd-cli-darwin-arm64"},
+	}
+	for plat, want := range cases {
+		parts := strings.SplitN(plat, "/", 2)
+		if got := assetCandidates(parts[0], parts[1]); strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Errorf("assetCandidates(%s) = %v, want %v", plat, got, want)
+		}
+	}
+}
+
+// Prefer the static build, fall back to the plain one for older releases,
+// and report which asset was picked (the checksum is looked up by it).
+func TestFindAssetPrefersStaticWithFallback(t *testing.T) {
+	cands := assetCandidates(runtime.GOOS, runtime.GOARCH)
+	mk := func(names ...string) *githubRelease {
+		rel := &githubRelease{TagName: "v9.9.9"}
+		for _, n := range names {
+			rel.Assets = append(rel.Assets, struct {
+				Name               string `json:"name"`
+				BrowserDownloadURL string `json:"browser_download_url"`
+			}{n, "https://example.com/" + n})
+		}
+		return rel
+	}
+	_, name, err := mk(cands[len(cands)-1], cands[0], "checksums.txt").findAsset()
+	if err != nil || name != cands[0] {
+		t.Errorf("with all assets: picked %q (%v), want %q", name, err, cands[0])
+	}
+	if len(cands) > 1 {
+		if _, name, err := mk(cands[1]).findAsset(); err != nil || name != cands[1] {
+			t.Errorf("fallback: picked %q (%v), want %q", name, err, cands[1])
+		}
+	}
+	if _, _, err := mk("checksums.txt").findAsset(); err == nil {
+		t.Error("expected an error when no asset fits this platform")
+	}
 }
