@@ -272,17 +272,6 @@ func relayHealth(port int) (pid int, version string) {
 	return h.PID, h.Version
 }
 
-func waitFor(t *testing.T, what string, cond func() bool) {
-	t.Helper()
-	for i := 0; i < 100; i++ {
-		if cond() {
-			return
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	t.Fatalf("timed out waiting for %s", what)
-}
-
 // A relay swapped on disk and sent SIGUSR2 comes back on the new binary
 // with the same PID — what `relay daemon update` relies on under nohup.
 func TestRelayRestartsInPlaceOnNewBinary(t *testing.T) {
