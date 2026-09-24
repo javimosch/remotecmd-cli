@@ -44,7 +44,7 @@ func helpCatalog() map[string]any {
 			Flags:   []string{"--refresh", "--json", "--no-health"},
 			Summary: "list targets with health (probes nodes unseen for >1h)"},
 		"set-relay": {Args: nil, Auth: false,
-			Flags:   []string{"--url <u>", "--name <n>", "--secret <s>"},
+			Flags:   []string{"--url <u>", "--name <n>", "--secret <s>", "--secret-stdin"},
 			Summary: "configure the relay URL, this node's name, and the relay secret"},
 		"group create": {Flags: []string{"--name <n>", "--targets <t1,t2,...>"}, Summary: "create a target group"},
 		"group add":    {Flags: []string{"--name <n>", "--targets <t1,t2,...>"}, Summary: "add targets to a group"},

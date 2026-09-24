@@ -277,6 +277,16 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
+		// A connection without the relay secret (allowed in only because
+		// RELAY_SECRET_EXEMPT is set) may act as an exempt daemon, never as a
+		// client: otherwise the exempt list would reopen command execution
+		// to anyone who can reach the relay.
+		if !ctx.authenticated && clientOnlyMessages[msg.Type] {
+			rc.send(&Message{Type: "error", ID: msg.ID, Error: "authentication required: relay secret not provided"})
+			log.Printf("Rejected %s from unauthenticated connection", msg.Type)
+			return
+		}
+
 		switch msg.Type {
 		case "register":
 			if ctx.handleRegister(&msg) {
@@ -410,4 +420,17 @@ func (rs *RelayServer) cleanupPending(reqID string) {
 // leak how many leading bytes of a guessed token were correct.
 func tokenEqual(a, b string) bool {
 	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+}
+
+// clientOnlyMessages are what a client (not a daemon) sends. They need the
+// relay secret whenever one is configured, even when RELAY_SECRET_EXEMPT
+// lets some daemons register without it.
+var clientOnlyMessages = map[string]bool{
+	"execute":       true,
+	"execute_multi": true,
+	"file_transfer": true,
+	"file_chunk":    true,
+	"pair_listen":   true,
+	"disconnect":    true,
+	"tunnel_open":   true,
 }
