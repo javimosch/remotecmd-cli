@@ -161,27 +161,66 @@ func downloadFile(url, dest string) error {
 }
 
 // fetchChecksums downloads and parses checksums.txt, returns map[filename]sha256.
-func fetchChecksums(url string) map[string]string {
-	resp, err := http.Get(url)
+func fetchChecksums(url string) (map[string]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), updateVersionTO)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
-		return nil
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return nil
+		return nil, fmt.Errorf("checksums.txt returned %d", resp.StatusCode)
 	}
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	m := make(map[string]string)
 	for _, line := range strings.Split(string(data), "\n") {
 		parts := strings.Fields(line)
 		if len(parts) == 2 {
-			m[parts[1]] = parts[0]
+			// sha256sum -b writes "<hash> *<name>"
+			m[strings.TrimPrefix(parts[1], "*")] = strings.ToLower(parts[0])
 		}
 	}
-	return m
+	return m, nil
+}
+
+// verifyReleaseChecksum checks the downloaded binary against the release's
+// checksums.txt. It fails closed: a missing checksums asset, an unreachable
+// or unparseable file, or no entry for this platform all refuse the update.
+// Installing an unverified binary on a remote-exec tool is never the safe
+// default — a truncated or swapped artifact would run on every node.
+func verifyReleaseChecksum(rel *githubRelease, path string) error {
+	url := rel.findChecksumsURL()
+	if url == "" {
+		return fmt.Errorf("release %s has no checksums.txt — refusing to install an unverified binary", rel.TagName)
+	}
+	checksums, err := fetchChecksums(url)
+	if err != nil {
+		return fmt.Errorf("cannot fetch checksums.txt: %w", err)
+	}
+	asset := assetNameForPlatform()
+	want, ok := checksums[asset]
+	if !ok {
+		return fmt.Errorf("checksums.txt has no entry for %s", asset)
+	}
+	if len(want) != sha256.Size*2 {
+		return fmt.Errorf("checksums.txt entry for %s is not a sha256 digest", asset)
+	}
+	got, err := fileSHA256(path)
+	if err != nil {
+		return fmt.Errorf("cannot hash download: %w", err)
+	}
+	if got != want {
+		return fmt.Errorf("hash mismatch (%s != %s)", got[:12], want[:12])
+	}
+	return nil
 }
 
 // smokeTestBinary runs `<path> version` to verify the binary is not corrupt.
@@ -257,24 +296,11 @@ func handleUpdate(args []string) {
 		osExit(exitUpdateFail)
 	}
 
-	// Verify hash against checksums.txt
-	checksumsURL := rel.findChecksumsURL()
-	if checksumsURL != "" {
-		checksums := fetchChecksums(checksumsURL)
-		wantHash, ok := checksums[assetNameForPlatform()]
-		if ok {
-			gotHash, err := fileSHA256(tmp)
-			if err != nil {
-				os.Remove(tmp)
-				fmt.Fprintf(os.Stderr, "[update] cannot hash download: %v\n", err)
-				osExit(exitUpdateFail)
-			}
-			if gotHash != wantHash {
-				os.Remove(tmp)
-				fmt.Fprintf(os.Stderr, "[update] hash mismatch (%s != %s)\n", gotHash[:12], wantHash[:12])
-				osExit(exitUpdateFail)
-			}
-		}
+	// Verify hash against checksums.txt (fail closed)
+	if err := verifyReleaseChecksum(rel, tmp); err != nil {
+		os.Remove(tmp)
+		fmt.Fprintf(os.Stderr, "[update] %v\n", err)
+		osExit(exitUpdateFail)
 	}
 
 	// Smoke test: the new binary must run `version`
