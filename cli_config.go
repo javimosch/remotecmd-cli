@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"os"
 )
 
 func handleAddTarget(args []string) {
@@ -13,13 +12,12 @@ func handleAddTarget(args []string) {
 	fs.Parse(args)
 
 	if *name == "" || *token == "" {
-		fmt.Fprintln(os.Stderr, "Error: --name and --token are required")
-		osExit(ExitConfigError)
+		fail(ExitConfigError, "missing_argument", "--name and --token are required",
+			"remotecmd-cli add-target --name <n> --token <t>")
 	}
 
 	if err := addTarget(*name, *token); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		osExit(ExitInternal)
+		failErrCode(ExitInternal, err)
 	}
 	fmt.Printf("Target %q added\n", *name)
 }
@@ -30,13 +28,12 @@ func handleRemoveTarget(args []string) {
 	fs.Parse(args)
 
 	if *name == "" {
-		fmt.Fprintln(os.Stderr, "Error: --name is required")
-		osExit(ExitConfigError)
+		fail(ExitConfigError, "missing_argument", "--name is required",
+			"remotecmd-cli remove-target --name <n>")
 	}
 
 	if err := removeTarget(*name); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		osExit(ExitInternal)
+		failErrCode(ExitInternal, err)
 	}
 	fmt.Printf("Target %q removed\n", *name)
 }
@@ -49,8 +46,7 @@ func handleListTargets(args []string) {
 	fs.Parse(args)
 
 	if err := listTargetsSmart(*refresh, *noHealth, *jsonOut); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		osExit(ExitInternal)
+		failErrCode(ExitInternal, err)
 	}
 }
 
@@ -62,18 +58,16 @@ func handleSetRelay(args []string) {
 	fs.Parse(args)
 
 	if *url == "" || *name == "" {
-		fmt.Fprintln(os.Stderr, "Error: --url and --name are required")
-		osExit(ExitConfigError)
+		fail(ExitConfigError, "missing_argument", "--url and --name are required",
+			"remotecmd-cli set-relay --url <u> --name <n> [--secret <s>]")
 	}
 
 	if err := setRelay(*url, *name); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		osExit(ExitInternal)
+		failErrCode(ExitInternal, err)
 	}
 	if *secret != "" {
 		if err := setRelaySecret(*secret); err != nil {
-			fmt.Fprintf(os.Stderr, "Error saving secret: %v\n", err)
-			osExit(ExitInternal)
+			failErrCode(ExitInternal, fmt.Errorf("saving secret: %w", err))
 		}
 	}
 	fmt.Printf("Relay configured: %s (as %q)\n", *url, *name)

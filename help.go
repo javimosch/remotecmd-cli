@@ -80,8 +80,13 @@ SIDECAR ACTIVATION:
 MCP SERVER (AI agent integration):
   remotecmd-cli mcp                                  Start MCP server (stdio mode for AI agents)
 
+AGENTS:
+  remotecmd-cli guide [--human]   Mental model, loop, gotchas (JSON; --human for markdown)
+  remotecmd-cli help-json         Machine-readable command catalog
+  Errors are JSON on stderr when stderr is not a terminal (RCMD_ERROR_FORMAT=json|text).
+
 OTHER:
-  remotecmd-cli version    Show version
+  remotecmd-cli version    Show version [--json]
   remotecmd-cli update     Self-update to latest release [--check] [--force]
   remotecmd-cli help       Show this help`, persistenceSubcommandName())
 }

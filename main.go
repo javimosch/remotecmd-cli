@@ -11,10 +11,16 @@ const Version = "2.5.0"
 func main() {
 	if len(os.Args) < 2 {
 		printHelp()
-		osExit(ExitConfigError)
+		fail(ExitConfigError, "missing_argument", "no command given",
+			"remotecmd-cli guide", "remotecmd-cli help-json")
 	}
 
 	first := os.Args[1]
+
+	if first == "--help-json" {
+		handleHelpJSON()
+		return
+	}
 
 	if strings.HasPrefix(first, "--") {
 		maybeNudge()
@@ -64,12 +70,19 @@ func main() {
 	case "update":
 		handleUpdate(os.Args[2:])
 	case "version":
+		if len(os.Args) > 2 && os.Args[2] == "--json" {
+			fmt.Printf("{\"tool\":\"remotecmd-cli\",\"version\":%q}\n", Version)
+			return
+		}
 		fmt.Println("remotecmd-cli version", Version)
+	case "guide":
+		handleGuide(os.Args[2:])
+	case "help-json":
+		handleHelpJSON()
 	case "help", "--help", "-h":
 		printHelp()
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", first)
-		printHelp()
-		osExit(ExitConfigError)
+		fail(ExitConfigError, "unknown_command", "unknown command: "+first,
+			"remotecmd-cli help-json", "remotecmd-cli guide")
 	}
 }

@@ -122,15 +122,13 @@ func handleExecFlags(args []string) {
 	fs.Parse(args)
 
 	if *target == "" || *cmd == "" {
-		fmt.Fprintln(os.Stderr, "Error: --target and --cmd are required")
-		fmt.Fprintln(os.Stderr, "Usage: remotecmd-cli --target <name> --cmd <command> [--timeout <seconds>] [--stream]")
-		osExit(ExitConfigError)
+		fail(ExitConfigError, "missing_argument", "--target and --cmd are required",
+			"remotecmd-cli --target <name> --cmd <command> [--timeout <seconds>] [--stream]")
 	}
 
 	stdinData := readPipedStdin()
 	if err := handleExecWithStdin(*target, *cmd, *timeout, *stream, stdinData); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		osExit(classifyError(err))
+		failErr(err)
 	}
 }
 
@@ -147,9 +145,8 @@ func handleExecSubcommand(args []string) {
 	fs.Parse(args)
 
 	if *cmd == "" {
-		fmt.Fprintln(os.Stderr, "Error: --cmd is required")
-		fmt.Fprintln(os.Stderr, "Usage: remotecmd-cli exec --cmd <command> [--target <name> | --targets <list> | --group <name>] [--timeout <s>] [--stream] [--format json|table]")
-		osExit(ExitConfigError)
+		fail(ExitConfigError, "missing_argument", "--cmd is required",
+			"remotecmd-cli exec --cmd <command> [--target <name> | --targets <list> | --group <name>] [--timeout <s>] [--stream] [--format json|table]")
 	}
 
 	var targetList []string
@@ -159,33 +156,29 @@ func handleExecSubcommand(args []string) {
 		var err error
 		targetList, err = resolveTargets(*group, true)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			osExit(ExitConfigError)
+			failErrCode(ExitConfigError, err)
 		}
 		isMulti = len(targetList) > 1
 	} else if *targets != "" {
 		var err error
 		targetList, err = resolveTargets(*targets, false)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			osExit(ExitConfigError)
+			failErrCode(ExitConfigError, err)
 		}
 		isMulti = len(targetList) > 1
 	} else if *target != "" {
 		targetList = []string{*target}
 		cfg, err := loadConfig()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			osExit(classifyError(err))
+			failErr(err)
 		}
 		if _, ok := cfg.Targets[*target]; !ok {
-			fmt.Fprintf(os.Stderr, "Error: unknown target %q\n", *target)
-			osExit(ExitConfigError)
+			fail(ExitConfigError, "unknown_target", fmt.Sprintf("unknown target %q", *target),
+				defaultSuggestions["unknown_target"]...)
 		}
 		isMulti = false
 	} else {
-		fmt.Fprintln(os.Stderr, "Error: one of --target, --targets, or --group is required")
-		osExit(ExitConfigError)
+		fail(ExitConfigError, "missing_argument", "one of --target, --targets, or --group is required")
 	}
 
 	_ = parallel
@@ -195,14 +188,12 @@ func handleExecSubcommand(args []string) {
 			fmt.Fprintln(os.Stderr, "Warning: --stream is not supported for multi-target; ignoring")
 		}
 		if err := handleMultiExec(targetList, *cmd, *timeout, *format); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			osExit(classifyError(err))
+			failErr(err)
 		}
 	} else {
 		stdinData := readPipedStdin()
 		if err := handleExecWithStdin(targetList[0], *cmd, *timeout, *stream, stdinData); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			osExit(classifyError(err))
+			failErr(err)
 		}
 	}
 }

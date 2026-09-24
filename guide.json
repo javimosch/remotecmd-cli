@@ -1,0 +1,98 @@
+{
+  "remotecmd-cli": "Run shell commands, copy files and forward ports on remote machines through a WebSocket relay: no SSH keys, no inbound ports, no VPN.",
+  "one_liner": "Each remote machine runs a daemon that dials OUT to a relay; you run the CLI, which also connects to the relay and asks it to forward a command to a named target. The target's token, which you hold, is the only thing that authorises the command.",
+  "model": {
+    "topology": "you (CLI) --ws--> relay <--ws-- target daemon. Every connection is outbound; the relay is the only listener.",
+    "relay": "A hub (relay daemon start) that routes messages between CLIs and daemons by target name. It does not run commands. Self-host it anywhere public; it listens on all interfaces, port 3032 by default.",
+    "daemon": "Runs on each target (daemon start). Registers under a name with its token and executes whatever the relay forwards with that token, as the user it runs as.",
+    "client": "The CLI on your machine. Holds one token per target in config.json and sends execute requests; it never accepts commands itself.",
+    "direction": "Control is one-way. Adding a target does not expose your machine: its daemon's token comes to you, never the reverse. A machine is only controllable if it runs a daemon.",
+    "config": "~/.remotecmd/config.json (relay URL, this node's name, optional relay secret, targets and groups). RCMD_CONFIG_DIR points one process at another directory, which is how one machine talks to a second relay or runs a second daemon.",
+    "names": "A name is unique per relay. A name held by a live connection can only be re-registered with the same token, so nobody can take over a connected node's name."
+  },
+  "loop": [
+    "On the relay host: remotecmd-cli relay daemon start --port 3032 -daemon (set RELAY_SECRET to require a shared secret).",
+    "On your machine: remotecmd-cli set-relay --url http://<relay>:3032 --name <you>.",
+    "Add a target, either by pairing (remotecmd-cli pair listen, then run the printed one-liner on the target) or manually (daemon start on the target, then add-target --name <n> --token <its token>).",
+    "Check it answers: remotecmd-cli list-targets --refresh.",
+    "Run commands: remotecmd-cli exec --target <n> --cmd 'hostname'. Use --targets or --group for many at once, and --format json to parse the result.",
+    "Move data or reach services: cp for files, tunnel start for ports.",
+    "Keep nodes alive across reboots: remotecmd-cli daemon systemd install (schtasks on Windows)."
+  ],
+  "concepts": {
+    "target": "A named remote machine running a daemon. Your config maps the name to its token and, if the daemon registered under a different name, to relay_name.",
+    "token": "The per-daemon secret. The daemon registers with it and every command must carry it. Keep it like an SSH private key: whoever holds it can run commands as the daemon's user.",
+    "relay secret": "An optional shared secret (RELAY_SECRET on the relay, set-relay --secret on clients) that gates who may connect to the relay at all. It is separate from target tokens.",
+    "group": "A named list of targets for multi-target exec (group create/add/remove/delete/list).",
+    "pairing": "pair listen prints a one-liner and a short code; the joining daemon sends its token to the listener, which saves it as a target. --require-activation-key stops anyone else who sees the code from pairing.",
+    "stream": "--stream sends stdout/stderr as they are produced instead of one buffered result. Use it for long commands.",
+    "health": "list-targets probes targets unseen for over an hour; --refresh probes all of them now. Results are cached in health.json."
+  },
+  "commands": {
+    "execute": [
+      "remotecmd-cli exec --target <name> --cmd <command> [--timeout <s>] [--stream]",
+      "remotecmd-cli exec --targets <t1,t2,...> --cmd <command> [--timeout <s>] [--parallel <n>] [--format json|table]",
+      "remotecmd-cli exec --group <name> --cmd <command> [--format json|table]",
+      "remotecmd-cli --target <name> --cmd <command>   (legacy single-target form)",
+      "remotecmd-cli client   (one JSON command per line on stdin)"
+    ],
+    "files and ports": [
+      "remotecmd-cli cp --target <name> --src <path> --dst <path> [--stream]",
+      "remotecmd-cli tunnel start --target <name> --local <port> --remote <host:port> [-daemon]",
+      "remotecmd-cli tunnel stop --target <name> --local <port>",
+      "remotecmd-cli tunnel status"
+    ],
+    "configuration": [
+      "remotecmd-cli set-relay --url <u> --name <n> [--secret <s>]",
+      "remotecmd-cli add-target --name <n> --token <t>",
+      "remotecmd-cli remove-target --name <n>",
+      "remotecmd-cli list-targets [--refresh] [--json] [--no-health]",
+      "remotecmd-cli group create|add|remove --name <n> --targets <t1,t2,...>",
+      "remotecmd-cli group delete --name <n> | group list"
+    ],
+    "pairing": [
+      "remotecmd-cli pair listen [--name <n>] [--timeout <s>] [--require-activation-key]",
+      "remotecmd-cli pair accept --code <c> [--activation-key <k>]",
+      "remotecmd-cli pair disconnect --target <name>"
+    ],
+    "daemon (on targets)": [
+      "remotecmd-cli daemon start [--token <t>] [-daemon]",
+      "remotecmd-cli daemon stop | daemon status",
+      "remotecmd-cli daemon systemd install|remove   (schtasks on Windows)"
+    ],
+    "relay (on the hub)": [
+      "remotecmd-cli relay daemon start [--port 3032] [-daemon] [--tls-cert <f> --tls-key <f>]",
+      "remotecmd-cli relay daemon stop | relay daemon status",
+      "remotecmd-cli relay add-key <k> | remove-key <k> | list-keys"
+    ],
+    "meta": [
+      "remotecmd-cli guide [--human]",
+      "remotecmd-cli help-json",
+      "remotecmd-cli version [--json]",
+      "remotecmd-cli update [--check] [--force]",
+      "remotecmd-cli feedback \"<message>\" [--kind bug|idea|praise] [--context <c>]",
+      "remotecmd-cli mcp",
+      "remotecmd-cli alias install|uninstall"
+    ]
+  },
+  "examples": [
+    {"goal": "Check disk space on one machine", "do": ["remotecmd-cli exec --target web1 --cmd 'df -h /'"]},
+    {"goal": "Run the same command on a fleet and parse the results", "do": ["remotecmd-cli group create --name prod --targets web1,web2,db1", "remotecmd-cli exec --group prod --cmd 'uptime' --format json"]},
+    {"goal": "Reach a database that only listens on the target's loopback", "do": ["remotecmd-cli tunnel start --target db1 --local 15432 --remote 127.0.0.1:5432 -daemon", "psql -h 127.0.0.1 -p 15432"]},
+    {"goal": "Onboard a new machine without copying tokens by hand", "do": ["remotecmd-cli pair listen --name new-box --require-activation-key", "(on new-box) run the printed one-liner"]},
+    {"goal": "Talk to a second relay without touching the main config", "do": ["RCMD_CONFIG_DIR=~/.remotecmd-alt remotecmd-cli set-relay --url http://<other-relay>:3032 --name me", "RCMD_CONFIG_DIR=~/.remotecmd-alt remotecmd-cli exec --target box --cmd hostname"]}
+  ],
+  "gotchas": [
+    "A target token is equivalent to shell access as the daemon's user (often root). Never paste it into logs, tickets or chat.",
+    "Only machines that run a daemon can be controlled. The client side never accepts commands, and tunnel ports bind 127.0.0.1 only.",
+    "The relay operator sees every token and command. TLS (--tls-cert/--tls-key or a TLS proxy) protects the wire, not the relay itself. Run your own relay for anything sensitive.",
+    "Set RELAY_SECRET on any public relay; without it anyone can connect and register names. RELAY_SECRET_EXEMPT lets listed names skip the secret.",
+    "RCMD_CONFIG_DIR only exists in recent builds. An older binary silently ignores it and writes ~/.remotecmd/config.json instead. Before running set-relay or add-target against an alternate directory, check that remotecmd-cli help-json lists RCMD_CONFIG_DIR under env. If help-json doesn't exist, the binary is too old.",
+    "Old daemons lack newer protocol features (for example stdin passthrough). A newer client then fails or hangs against them; upgrade the daemon.",
+    "Exit codes are legacy: 1 = remote command failed, 2 = relay unreachable (retry), 3 = bad arguments or config, 4 = internal. Errors are JSON on stderr when stderr is not a terminal (RCMD_ERROR_FORMAT=json|text to force).",
+    "A daemon reconnects every 5s; a dead link is noticed within about 60s by both ends via WebSocket pings, and dials give up after 10s.",
+    "Two daemons on one machine need separate config dirs (RCMD_CONFIG_DIR). Their -daemon PID files live at fixed /tmp paths, so run the second one under systemd or in the foreground.",
+    "update verifies the release's sha256 and refuses to install on any doubt (exit 100)."
+  ],
+  "see_also": ["remotecmd-cli help-json", "remotecmd-cli help", "remotecmd-cli version"]
+}
