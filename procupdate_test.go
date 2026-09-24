@@ -43,6 +43,34 @@ func TestMatchesProc(t *testing.T) {
 	}
 }
 
+// A container host sees its containers' processes in /proc; they must not
+// be treated as ours.
+func TestInOurNamespaces(t *testing.T) {
+	old := readNamespace
+	defer func() { readNamespace = old }()
+	ns := map[string]map[string]string{
+		"self": {"pid": "pid:[1]", "mnt": "mnt:[1]"},
+		"10":   {"pid": "pid:[1]", "mnt": "mnt:[1]"}, // host process
+		"20":   {"pid": "pid:[2]", "mnt": "mnt:[2]"}, // container process
+		"30":   {"pid": "pid:[1]", "mnt": "mnt:[9]"}, // same PIDs, other mounts
+	}
+	readNamespace = func(pid, kind string) (string, error) {
+		if m, ok := ns[pid]; ok {
+			return m[kind], nil
+		}
+		return "", os.ErrPermission
+	}
+	for pid, want := range map[int]bool{10: true, 20: false, 30: false, 40: false} {
+		if got := inOurNamespaces(pid); got != want {
+			t.Errorf("inOurNamespaces(%d) = %v, want %v", pid, got, want)
+		}
+	}
+	readNamespace = old
+	if !inOurNamespaces(os.Getpid()) {
+		t.Error("our own process must be in our namespaces")
+	}
+}
+
 func TestUnitFromCgroup(t *testing.T) {
 	cases := []struct {
 		cg, unit string

@@ -114,7 +114,7 @@ func findRunning(kind, name string) []runningProc {
 				continue
 			}
 			argv := strings.Split(strings.TrimRight(string(raw), "\x00"), "\x00")
-			if !matchesProc(argv, kind, name) {
+			if !matchesProc(argv, kind, name) || !inOurNamespaces(pid) {
 				continue
 			}
 			exe, err := os.Readlink(filepath.Join("/proc", e.Name(), "exe"))
@@ -141,6 +141,27 @@ func findRunning(kind, name string) []runningProc {
 		return []runningProc{p}
 	}
 	return nil
+}
+
+// readNamespace returns the namespace identity of a process, e.g.
+// "pid:[4026531836]". A var so tests can fake container processes.
+var readNamespace = func(pid, ns string) (string, error) {
+	return os.Readlink(filepath.Join("/proc", pid, "ns", ns))
+}
+
+// inOurNamespaces reports whether pid shares our PID and mount namespaces.
+// A Proxmox/LXC host sees its containers' processes in /proc (pve2 listed
+// rbm20's and rbm21's daemons as its own); updating or signalling those
+// would reach into another machine. Unreadable namespaces count as foreign.
+func inOurNamespaces(pid int) bool {
+	for _, ns := range []string{"pid", "mnt"} {
+		ours, err1 := readNamespace("self", ns)
+		theirs, err2 := readNamespace(strconv.Itoa(pid), ns)
+		if err1 != nil || err2 != nil || ours != theirs {
+			return false
+		}
+	}
+	return true
 }
 
 // probeRunning asks the binary the process actually runs (/proc/<pid>/exe
