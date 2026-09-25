@@ -88,6 +88,10 @@ func handlePairListen(args []string) {
 				resultCh <- &msg
 				return
 			}
+			if msg.Type == "error" && strings.Contains(msg.Error, "authentication required") {
+				errCh <- fmt.Errorf("relay: %s", msg.Error)
+				return
+			}
 		}
 	}()
 

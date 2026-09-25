@@ -24,6 +24,8 @@ func classifyError(err error) int {
 	}
 	msg := err.Error()
 	switch {
+	case strings.Contains(msg, "relay secret"), strings.Contains(msg, "authentication required"):
+		return ExitConfigError
 	case strings.Contains(msg, "connect to relay"),
 		strings.Contains(msg, "connection"),
 		strings.Contains(msg, "timed out waiting"):

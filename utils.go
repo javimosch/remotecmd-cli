@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -96,5 +97,19 @@ func relayAuthHeaders() http.Header {
 // dialRelay connects to the relay at the given URL with the tuned dialer
 // and relay secret (if configured). All relay connections should use this.
 func dialRelay(url string) (*websocket.Conn, *http.Response, error) {
-	return wsDialer().Dial(url, relayAuthHeaders())
+	conn, resp, err := wsDialer().Dial(url, relayAuthHeaders())
+	if err != nil && resp != nil && resp.StatusCode == http.StatusUnauthorized {
+		// The relay refused the handshake: without this the caller only sees
+		// "websocket: bad handshake".
+		have := "no relay secret is configured"
+		if relaySecret() != "" {
+			have = "the configured relay secret was rejected"
+		}
+		return nil, resp, fmt.Errorf("relay requires a secret (%s): %w", have, errRelaySecret)
+	}
+	return conn, resp, err
 }
+
+// errRelaySecret marks a relay authentication failure: a configuration
+// problem to fix (set-relay --secret-stdin), not a network error to retry.
+var errRelaySecret = errors.New("set it with: printf %s <secret> | remotecmd-cli set-relay --secret-stdin")

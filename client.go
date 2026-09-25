@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -75,10 +76,13 @@ func handleExecWithStdin(target, cmd string, timeout int, stream bool, stdinData
 				errCh <- fmt.Errorf("read response: %w", err)
 				return
 			}
-			if msg.ID != id {
+			if msg.ID != id && !(msg.Type == "error" && msg.ID == "") {
 				continue
 			}
 			switch msg.Type {
+			case "error":
+				errCh <- fmt.Errorf("relay: %s", msg.Error)
+				return
 			case "stream_chunk":
 				if stream {
 					emitProgress("chunk", map[string]interface{}{
@@ -108,6 +112,11 @@ func handleExecWithStdin(target, cmd string, timeout int, stream bool, stdinData
 
 	select {
 	case result := <-resultCh:
+		// The relay refusing us is a configuration problem, not a command
+		// result (whose ok:false the legacy contract prints with exit 0).
+		if result.OK != nil && !*result.OK && strings.Contains(result.Error, "authentication required") {
+			return fmt.Errorf("relay: %s", result.Error)
+		}
 		noteDaemonVersion(target, result.DaemonVersion)
 		if result.Type == "result" || !stream {
 			out, _ := json.MarshalIndent(result, "", "  ")
@@ -251,7 +260,15 @@ func multiExecRaw(resolvedTargets []string, tokens map[string]string, cmd string
 				return
 			}
 			if msg.Type == "multi_result" && msg.ID == id {
+				if msg.Error != "" {
+					errCh <- fmt.Errorf("relay: %s", msg.Error)
+					return
+				}
 				resultCh <- &msg
+				return
+			}
+			if msg.Type == "error" && (msg.ID == id || msg.ID == "") {
+				errCh <- fmt.Errorf("relay: %s", msg.Error)
 				return
 			}
 		}

@@ -282,7 +282,7 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 		// client: otherwise the exempt list would reopen command execution
 		// to anyone who can reach the relay.
 		if !ctx.authenticated && clientOnlyMessages[msg.Type] {
-			rc.send(&Message{Type: "error", ID: msg.ID, Error: "authentication required: relay secret not provided"})
+			rc.send(authRequiredReply(&msg))
 			log.Printf("Rejected %s from unauthenticated connection", msg.Type)
 			return
 		}
@@ -433,4 +433,21 @@ var clientOnlyMessages = map[string]bool{
 	"pair_listen":   true,
 	"disconnect":    true,
 	"tunnel_open":   true,
+}
+
+const errAuthRequired = "authentication required: relay secret not provided"
+
+// authRequiredReply answers a rejected client message in the shape that
+// client is waiting for, so every CLI version (not only ones that know an
+// "error" message) shows the reason instead of "unexpected EOF".
+func authRequiredReply(msg *Message) *Message {
+	switch msg.Type {
+	case "execute_multi":
+		return &Message{Type: "multi_result", ID: msg.ID, Error: errAuthRequired}
+	case "tunnel_open":
+		return &Message{Type: "tunnel_opened", TunnelID: msg.TunnelID, Error: errAuthRequired}
+	case "pair_listen", "disconnect":
+		return &Message{Type: "error", ID: msg.ID, Error: errAuthRequired}
+	}
+	return errResult(msg.ID, errAuthRequired) // execute, file_transfer, file_chunk
 }

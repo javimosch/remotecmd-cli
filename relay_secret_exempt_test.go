@@ -94,3 +94,55 @@ func TestExemptConnectionsCannotExecute(t *testing.T) {
 		t.Errorf("authenticated execute should reach the daemon, daemon got %+v", m)
 	}
 }
+
+// A client without the secret gets the relay's reason, not "unexpected
+// EOF" — both when the relay lets it in (exempt list set) and rejects its
+// command, and when the relay refuses the handshake (401).
+func TestClientWithoutSecretSeesWhy(t *testing.T) {
+	for _, exempt := range []bool{true, false} {
+		_, cleanup := setupTestConfig(t)
+		rs := NewRelayServer()
+		rs.secret = "S"
+		if exempt {
+			rs.secretExempt["legacy-box"] = true
+		}
+		srv := httptest.NewServer(rs.mux())
+		setRelay(srv.URL, "client-without-secret")
+		addTarget("legacy-box", "tok")
+
+		err := handleExecWithStdin("legacy-box", "id", 5, false, nil)
+		if err == nil {
+			t.Fatalf("exempt=%v: expected an error", exempt)
+		}
+		want := "authentication required"
+		if !exempt {
+			want = "relay requires a secret (no relay secret is configured)"
+		}
+		if !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), "unexpected EOF") {
+			t.Errorf("exempt=%v: error %q, want it to explain %q", exempt, err, want)
+		}
+		if code := classifyError(err); code != ExitConfigError {
+			t.Errorf("exempt=%v: exit %d, want %d (config, not a retryable network error)", exempt, code, ExitConfigError)
+		}
+		if typ := errorType(classifyError(err), err.Error()); typ != "auth_required" {
+			t.Errorf("exempt=%v: type %q, want auth_required", exempt, typ)
+		}
+		srv.Close()
+		cleanup()
+	}
+}
+
+// Older clients only understand the reply they wait for: an execute is
+// rejected with a failed result, not an "error" message they would skip.
+func TestAuthRequiredReplyShapes(t *testing.T) {
+	cases := map[string]string{"execute": "result", "file_transfer": "result", "execute_multi": "multi_result", "tunnel_open": "tunnel_opened", "pair_listen": "error"}
+	for in, want := range cases {
+		r := authRequiredReply(&Message{Type: in, ID: "x", TunnelID: "t"})
+		if r.Type != want || !strings.Contains(r.Error, "authentication required") {
+			t.Errorf("%s -> %+v, want type %s with the reason", in, r, want)
+		}
+		if want == "result" && (r.OK == nil || *r.OK) {
+			t.Errorf("%s: result must be ok:false", in)
+		}
+	}
+}

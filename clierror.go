@@ -67,6 +67,7 @@ var defaultSuggestions = map[string][]string{
 	"unknown_target":    {"remotecmd-cli list-targets", "remotecmd-cli add-target --name <n> --token <t>"},
 	"relay_unreachable": {"retry with backoff", "remotecmd-cli list-targets --refresh"},
 	"not_configured":    {"remotecmd-cli set-relay --url <u> --name <n>"},
+	"auth_required":     {"printf %s <secret> | remotecmd-cli set-relay --secret-stdin"},
 }
 
 func writeError(w io.Writer, e cliError) {
@@ -114,6 +115,8 @@ func errorType(code int, msg string) string {
 		return "command_failed"
 	}
 	switch {
+	case strings.Contains(msg, "relay secret"), strings.Contains(msg, "authentication required"):
+		return "auth_required"
 	case strings.Contains(msg, "unknown target"), strings.Contains(msg, "not found in config"):
 		return "unknown_target"
 	case strings.Contains(msg, "not connected"):
