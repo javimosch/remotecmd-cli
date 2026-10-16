@@ -532,3 +532,17 @@ MIT — [Javier Leandro Arancibia](https://github.com/javimosch)
 ## Support
 
 [![Support me on Ko-fi](https://storage.ko-fi.com/cdn/brandasset/v2/support_me_on_kofi_badge_beige.png)](https://ko-fi.com/javimosch)
+
+
+## Admitting new nodes on a relay that has a secret
+
+A relay started with `RELAY_SECRET` refuses nodes that do not present the secret, except:
+
+| way in | set with | scope |
+|---|---|---|
+| exempt name | `RELAY_SECRET_EXEMPT` at start, or `relay add-exempt <name>` / `remove-exempt` / `list-exempt` (a file re-read on change: **no restart**) | the name alone |
+| known node | automatic: the first time a node joins with an activation key the relay stores `name -> sha256(token)` in `known-nodes.json`; `relay list-nodes`, `relay forget-node <name>` | name + token |
+| activation key | `relay add-key <key>` / `remove-key` (hot-reloaded); the node sends it in its register message (saved by `pair accept --activation-key`, or `install.sh --activation-key`) | any new name |
+
+Nothing here lets an unauthenticated connection act as a client (execute, file transfer, tunnels, `pair_listen`). Before this, an activation key was only read in the pair message, which a
+node could only send after registering, which the secret refused: a new node could not pair on a relay with a secret, and adding an exempt name needed a relay restart.

@@ -25,15 +25,16 @@ func (ctx *wsContext) handleRegister(msg *Message) bool {
 		ctx.rc.send(&Message{Type: "error", Error: "name and token required"})
 		return false
 	}
-	// If secret is enforced and this connection is unauthenticated,
-	// check if the target name is in the exempt list.
+	// If a secret is enforced and this connection did not present it, the node must be admitted another way (relay_admission.go):
+	// an exempt name, a node this relay already knows (same name and token), or a valid activation key.
 	if ctx.rs.secret != "" && !ctx.authenticated {
-		if !ctx.rs.secretExempt[msg.Name] {
+		ok, how := ctx.rs.admitWithoutSecret(msg)
+		if !ok {
 			ctx.rc.send(&Message{Type: "error", Error: "authentication required: relay secret not provided"})
-			log.Printf("Rejected registration: %s not in exempt list and no secret provided", msg.Name)
+			log.Printf("Rejected registration: %s not exempt, not a known node and no valid activation key, and no secret provided", msg.Name)
 			return true
 		}
-		log.Printf("Exempt connection: %s (no secret, whitelisted)", msg.Name)
+		log.Printf("Admitted without the secret: %s (%s)", msg.Name, how)
 	}
 	ctx.rs.mu.Lock()
 	if existing, ok := ctx.rs.clients[msg.Name]; ok {

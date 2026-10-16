@@ -182,13 +182,13 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 	if rs.secret != "" {
 		auth := r.Header.Get("Authorization")
 		if !tokenEqual(auth, "Bearer "+rs.secret) {
-			if len(rs.secretExempt) == 0 {
-				// No exempt list — reject immediately
+			if !rs.canSkipSecret() {
+				// Nothing could admit this connection (no exempt names, no activation keys, no known nodes) — reject immediately
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				log.Printf("Rejected connection: invalid or missing relay secret")
 				return
 			}
-			// Has exempt list — allow upgrade, check on register
+			// Something could admit it — allow the upgrade, decide on register
 			authenticated = false
 		}
 	}
@@ -277,8 +277,7 @@ func (rs *RelayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// A connection without the relay secret (allowed in only because
-		// RELAY_SECRET_EXEMPT is set) may act as an exempt daemon, never as a
+		// A connection without the relay secret (allowed in only because an exempt name, a known node or an activation key can admit it) may act as a daemon, never as a
 		// client: otherwise the exempt list would reopen command execution
 		// to anyone who can reach the relay.
 		if !ctx.authenticated && clientOnlyMessages[msg.Type] {

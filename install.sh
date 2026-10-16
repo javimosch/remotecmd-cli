@@ -1,6 +1,6 @@
 #!/bin/sh
 # remotecmd-cli install + pair script
-# Usage: curl -sSL https://raw.githubusercontent.com/javimosch/remotecmd-cli/master/install.sh | sh -s -- --relay <url> --code <code>
+# Usage: curl -sSL https://raw.githubusercontent.com/javimosch/remotecmd-cli/master/install.sh | sh -s -- --relay <url> --code <code> [--activation-key <key>]
 set -e
 
 REPO="javimosch/remotecmd-cli"
@@ -8,18 +8,20 @@ INSTALL_DIR="${HOME}/.local/bin"
 BIN="remotecmd-cli"
 RELAY_URL=""
 PAIR_CODE=""
+ACTIVATION_KEY=""
 
 # --- Parse args ---
 while [ $# -gt 0 ]; do
   case "$1" in
     --relay) RELAY_URL="$2"; shift 2 ;;
     --code)  PAIR_CODE="$2"; shift 2 ;;
+    --activation-key) ACTIVATION_KEY="$2"; shift 2 ;;
     *) shift ;;
   esac
 done
 
 if [ -z "$RELAY_URL" ] || [ -z "$PAIR_CODE" ]; then
-  echo "Usage: install.sh --relay <relay-url> --code <pair-code>"
+  echo "Usage: install.sh --relay <relay-url> --code <pair-code> [--activation-key <key>]"
   exit 1
 fi
 
@@ -96,6 +98,11 @@ echo "[remotecmd] Saving pair code..."
 mkdir -p "${HOME}/.remotecmd"
 echo "$PAIR_CODE" > "${HOME}/.remotecmd/pair_code"
 chmod 600 "${HOME}/.remotecmd/pair_code"
+# An activation key lets this node join a relay that has a secret (the daemon sends it when it registers; the relay then remembers the node)
+if [ -n "$ACTIVATION_KEY" ]; then
+  echo "$ACTIVATION_KEY" > "${HOME}/.remotecmd/activation_key"
+  chmod 600 "${HOME}/.remotecmd/activation_key"
+fi
 
 # --- Start daemon (background, persistent) ---
 echo "[remotecmd] Starting daemon..."

@@ -20,6 +20,16 @@ func handleRelaySubcommand(args []string) {
 		handleRelayRemoveKey(args[1:])
 	case "list-keys":
 		handleRelayListKeys()
+	case "add-exempt":
+		handleRelayAddExempt(args[1:])
+	case "remove-exempt":
+		handleRelayRemoveExempt(args[1:])
+	case "list-exempt":
+		handleRelayListExempt()
+	case "list-nodes":
+		handleRelayListNodes()
+	case "forget-node":
+		handleRelayForgetNode(args[1:])
 	default:
 		failUsage("unknown_command", "unknown relay subcommand: "+args[0], printRelayHelp)
 	}
@@ -63,6 +73,70 @@ func handleRelayListKeys() {
 		}
 		fmt.Printf("  %s\n", masked)
 	}
+}
+
+// The exempt list and the nodes admitted with an activation key are files next to the relay's config, re-read when they change: no restart (see relay_admission.go).
+
+func handleRelayAddExempt(args []string) {
+	if len(args) < 1 {
+		fail(ExitConfigError, "missing_argument", "relay add-exempt needs a node name", "remotecmd-cli relay add-exempt <name>")
+	}
+	if err := addExemptNode(args[0]); err != nil {
+		failErr(err)
+	}
+	fmt.Printf("Exempt node added: %s (it may now register without the relay secret; hot-reloaded, no restart needed)\n", args[0])
+	fmt.Println("An exempt NAME is trusted by name alone: prefer an activation key (relay add-key), which admits a node by name + token.")
+}
+
+func handleRelayRemoveExempt(args []string) {
+	if len(args) < 1 {
+		fail(ExitConfigError, "missing_argument", "relay remove-exempt needs a node name", "remotecmd-cli relay remove-exempt <name>")
+	}
+	if err := removeExemptNode(args[0]); err != nil {
+		failErr(err)
+	}
+	fmt.Printf("Exempt node removed: %s (names set with RELAY_SECRET_EXEMPT stay until the relay restarts)\n", args[0])
+}
+
+func handleRelayListExempt() {
+	names := exemptNodes.list()
+	if len(names) == 0 {
+		fmt.Println("No exempt nodes in the file (RELAY_SECRET_EXEMPT names are not listed here).")
+		fmt.Printf("File: %s\n", exemptNodesPath())
+		return
+	}
+	fmt.Printf("Exempt nodes (%d) — %s:\n", len(names), exemptNodesPath())
+	for _, n := range names {
+		fmt.Printf("  %s\n", n)
+	}
+}
+
+func handleRelayListNodes() {
+	names := knownNodes.names()
+	if len(names) == 0 {
+		fmt.Println("No nodes admitted with an activation key.")
+		fmt.Printf("File: %s\n", knownNodesPath())
+		return
+	}
+	fmt.Printf("Nodes admitted with an activation key (%d) — %s:\n", len(names), knownNodesPath())
+	for _, n := range names {
+		fmt.Printf("  %s\n", n)
+	}
+}
+
+func handleRelayForgetNode(args []string) {
+	if len(args) < 1 {
+		fail(ExitConfigError, "missing_argument", "relay forget-node needs a node name", "remotecmd-cli relay forget-node <name>")
+	}
+	ok, err := knownNodes.forget(args[0])
+	if err != nil {
+		failErr(err)
+	}
+	if !ok {
+		fmt.Printf("No admitted node named %s.\n", args[0])
+		return
+	}
+	fmt.Printf("Forgotten: %s (it can no longer register without the secret; a live connection stays until it drops)\n", args[0])
 }
 
 func handleRelayDaemon(args []string) {

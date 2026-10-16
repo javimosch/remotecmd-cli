@@ -134,11 +134,15 @@ func (td *TargetDaemon) run() {
 		}
 	}()
 
+	// The activation key (saved by `pair accept` / install.sh) lets a node join a relay that has a secret without the secret; the relay remembers the node
+	// (name + token), so the key is not needed again.
+	activationKey, _ := loadActivationKey()
 	td.send(&Message{
 		Type:          "register",
 		Name:          td.name,
 		Token:         td.token,
 		DaemonVersion: Version, // lets the relay log which build each node runs
+		ActivationKey: activationKey,
 	})
 
 	for {

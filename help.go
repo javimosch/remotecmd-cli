@@ -99,7 +99,12 @@ Commands:
   daemon       Manage relay daemon (start/stop/status)
   add-key <k>  Add an activation key (hot-reloaded, no restart needed)
   remove-key <k>  Remove an activation key
-  list-keys    List configured activation keys (masked)`)
+  list-keys    List configured activation keys (masked)
+  add-exempt <name>     Let a node name register without the relay secret (hot-reloaded, no restart)
+  remove-exempt <name>  Remove such a name (names from RELAY_SECRET_EXEMPT stay until restart)
+  list-exempt           List the exempt names in the file
+  list-nodes            List the nodes admitted with an activation key
+  forget-node <name>    Revoke a node admitted with an activation key`)
 }
 
 func printRelayDaemonHelp() {
