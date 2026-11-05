@@ -37,6 +37,19 @@
       "remotecmd-cli --target <name> --cmd <command>   (legacy single-target form)",
       "remotecmd-cli client   (one JSON command per line on stdin)"
     ],
+    "aliases": [
+      "remotecmd-cli alias install | uninstall   (installs rc rcx rcl rcs rcc rcg rcd rcr into ~/.local/bin)",
+      "rc  <args...>   = remotecmd-cli <args...>",
+      "rcx <target> <command> [--stream] [timeout]   one target; timeout in seconds, default 10",
+      "rcx --targets t1,t2 <command> [timeout]   several targets in parallel; default 30",
+      "rcx --group <name> <command> [timeout]   every target of a group; default 30",
+      "rcl [--refresh] [--json] [--no-health]   list targets with health (probes nodes stale > 1 h); --refresh re-probes all, --json machine output, --no-health config only",
+      "rcs <target>   daemon status on a target",
+      "rcc <target> <src> <dst> [--stream]   copy files / dirs to a target",
+      "rcg list|create|add|remove|delete   group management",
+      "rcd start|stop|status|systemd   local daemon management",
+      "rcr start|stop|status|systemd   relay management"
+    ],
     "files and ports": [
       "remotecmd-cli cp --target <name> --src <path> --dst <path> [--stream]",
       "remotecmd-cli tunnel start --target <name> --local <port> --remote <host:port> [-daemon]",
@@ -86,6 +99,8 @@
     {"goal": "Talk to a second relay without touching the main config", "do": ["RCMD_CONFIG_DIR=~/.remotecmd-alt remotecmd-cli set-relay --url http://<other-relay>:3032 --name me", "RCMD_CONFIG_DIR=~/.remotecmd-alt remotecmd-cli exec --target box --cmd hostname"]}
   ],
   "gotchas": [
+    "rcx waits only 10 s by default (30 s for --targets/--group). A longer command then fails with relay_unreachable 'timed out waiting for response' although the target is up: pass the timeout as the last argument (rcx <target> <cmd> 300) or use exec --timeout 300. The daemon has no cap (issue #10 tracks a clearer error).",
+    "rcl takes no --help: any unknown argument just prints the target list. Its flags are --refresh, --json and --no-health.",
     "A target token is equivalent to shell access as the daemon's user (often root). Never paste it into logs, tickets or chat.",
     "Only machines that run a daemon can be controlled. The client side never accepts commands, and tunnel ports bind 127.0.0.1 only.",
     "The relay operator sees every token and command. TLS (--tls-cert/--tls-key or a TLS proxy) protects the wire, not the relay itself. Run your own relay for anything sensitive.",
