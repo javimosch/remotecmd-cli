@@ -76,14 +76,59 @@
       "remotecmd-cli feedback \"<message>\" [--kind bug|idea|praise] [--context <c>]",
       "remotecmd-cli mcp",
       "remotecmd-cli alias install|uninstall"
+    ],
+    "cp": [
+      "copy a local file or directory to a target — chunked, parallel streams",
+      "--target <name> --src <path> --dst <path> [--stream]",
+      "env RCMD_PARALLEL_STREAMS=N (0/1 disables, default auto 2-4 for >5 MiB)"
     ]
   },
   "examples": [
-    {"goal": "Check disk space on one machine", "do": ["remotecmd-cli exec --target web1 --cmd 'df -h /'"]},
-    {"goal": "Run the same command on a fleet and parse the results", "do": ["remotecmd-cli group create --name prod --targets web1,web2,db1", "remotecmd-cli exec --group prod --cmd 'uptime' --format json"]},
-    {"goal": "Reach a database that only listens on the target's loopback", "do": ["remotecmd-cli tunnel start --target db1 --local 15432 --remote 127.0.0.1:5432 -daemon", "psql -h 127.0.0.1 -p 15432"]},
-    {"goal": "Onboard a new machine without copying tokens by hand", "do": ["remotecmd-cli pair listen --name new-box --require-activation-key", "(on the relay) remotecmd-cli relay add-key <key>   # when the relay has a secret", "(on new-box) run the printed one-liner with --activation-key <key> appended"]},
-    {"goal": "Talk to a second relay without touching the main config", "do": ["RCMD_CONFIG_DIR=~/.remotecmd-alt remotecmd-cli set-relay --url http://<other-relay>:3032 --name me", "RCMD_CONFIG_DIR=~/.remotecmd-alt remotecmd-cli exec --target box --cmd hostname"]}
+    {
+      "goal": "Check disk space on one machine",
+      "do": [
+        "remotecmd-cli exec --target web1 --cmd 'df -h /'"
+      ]
+    },
+    {
+      "goal": "Run the same command on a fleet and parse the results",
+      "do": [
+        "remotecmd-cli group create --name prod --targets web1,web2,db1",
+        "remotecmd-cli exec --group prod --cmd 'uptime' --format json"
+      ]
+    },
+    {
+      "goal": "Reach a database that only listens on the target's loopback",
+      "do": [
+        "remotecmd-cli tunnel start --target db1 --local 15432 --remote 127.0.0.1:5432 -daemon",
+        "psql -h 127.0.0.1 -p 15432"
+      ]
+    },
+    {
+      "goal": "Onboard a new machine without copying tokens by hand",
+      "do": [
+        "remotecmd-cli pair listen --name new-box --require-activation-key",
+        "(on the relay) remotecmd-cli relay add-key <key>   # when the relay has a secret",
+        "(on new-box) run the printed one-liner with --activation-key <key> appended"
+      ]
+    },
+    {
+      "goal": "Upgrade the whole fleet to the latest release",
+      "do": [
+        "remotecmd-cli update   (upgrade your own CLI first so list-targets VERSION is truthful)",
+        "remotecmd-cli list-targets --refresh",
+        "Per node: rcx --group <g> '/proc/$PPID/exe daemon update'  — /proc/$PPID/exe is the running daemon's binary, which can differ from the PATH copy",
+        "Relay host: also run 'relay daemon update' — daemon and relay often share one binary file",
+        "remotecmd-cli list-targets --refresh   (verify: no '*' markers left)"
+      ]
+    },
+    {
+      "goal": "Talk to a second relay without touching the main config",
+      "do": [
+        "RCMD_CONFIG_DIR=~/.remotecmd-alt remotecmd-cli set-relay --url http://<other-relay>:3032 --name me",
+        "RCMD_CONFIG_DIR=~/.remotecmd-alt remotecmd-cli exec --target box --cmd hostname"
+      ]
+    }
   ],
   "gotchas": [
     "A target token is equivalent to shell access as the daemon's user (often root). Never paste it into logs, tickets or chat.",
@@ -96,7 +141,19 @@
     "A daemon reconnects every 5s; a dead link is noticed within about 60s by both ends via WebSocket pings, and dials give up after 10s.",
     "Two daemons on one machine: to join a second relay give it its own RCMD_CONFIG_DIR; to run under a second name on the same relay use daemon start --name <n>. With -daemon, pass the same --name to daemon stop/status, since each name gets its own PID file.",
     "update verifies the release's sha256 and refuses to install on any doubt (exit 100).",
-    "update replaces the CLI you invoked; daemon update / relay daemon update replace the binary the running daemon or relay actually executes (it may be a different file) and restart it in place — fleet-wide: rcx --group <g> 'remotecmd-cli daemon update'."
+    "update replaces the CLI you invoked; daemon update / relay daemon update replace the binary the running daemon or relay actually executes (it may be a different file) and restart it in place — fleet-wide: rcx --group <g> 'remotecmd-cli daemon update'.",
+    "For fleet upgrades prefer '/proc/$PPID/exe daemon update' over the PATH binary: the running daemon may execute a different file than what `which` resolves. On musl/Alpine containers deploy the linux-*-static release asset — the dynamic build fails with 'not found'. A daemon on a RELAY_SECRET relay needs a matching relay.secret in its config (or exempt name / activation key); the symptom is 'Relay error: authentication required' in a reconnect loop.",
+    "File transfer: use 'remotecmd-cli cp --target T --src F --dst P [--stream]' for anything over ~5 MB. It chunks over the file_transfer protocol (parallel streams, 2 MiB chunks, auto-tuned 2-4 streams). Do NOT hand-roll 'rcx exec \"cat > dst\" < file' — that sends stdin as ONE WebSocket frame and breaks around 50 MB with broken pipe.",
+    "cp has no resume: a retry re-sends from byte 0 and overwrites the remote partial file. Budget the retries accordingly.",
+    "On a flaky relay (broken pipe / i/o timeout mid-transfer), set RCMD_PARALLEL_STREAMS=1 — parallel streams multiply the chances of hitting a dead window; single stream rides through most flaps.",
+    "exec responses die at ~10-15 s on a loaded relay even when the remote work continues. For long ops (image pushes, big builds) run detached: 'nohup cmd > /root/job.log 2>&1 &' then poll the log instead of waiting on the exec result.",
+    "Coolify-managed containers (ecobox etc.) get recreated on restart — /root and /usr/local are wiped. Re-provision after every recreate: ssh keys (~/.ssh/id_rsa_srv for git.geored.fr), /root/.docker config for crane pushes, downloaded tools. Durable storage lives on the /data bind mount; stage durable kits in /data/.agent-tools/.",
+    "git.geored.fr listens on SSH :220 and works from targets on the JAR network when local VPN is down: GIT_SSH_COMMAND='ssh -i <key> -o StrictHostKeyChecking=no' git push ... — keep the authorized key staged on the target.",
+    "Target names can differ from mental aliases (e.g. 'rfs_dev_ecobox' shows as ecobox in rcl but the exec alias resolves differently) — run 'remotecmd-cli list-targets' and use the NAME column verbatim."
   ],
-  "see_also": ["remotecmd-cli help-json", "remotecmd-cli help", "remotecmd-cli version"]
+  "see_also": [
+    "remotecmd-cli help-json",
+    "remotecmd-cli help",
+    "remotecmd-cli version"
+  ]
 }
