@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Changelog August 2026 - remotecmd</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+    <style>
+      body { font-family: 'Inter', system-ui, sans-serif; background-color: #0a0a0b; color: #e2e8f0; }
+      h1, h2, h3 { font-family: 'Geist', system-ui, sans-serif; }
+      .tab-btn { transition: all 0.2s ease; }
+      .tab-btn.active { background-color: #1a1a1d; border-color: #3b82f6; color: #fff; }
+      .tab-content { display: none; animation: fadeIn 0.3s ease; }
+      .tab-content.active { display: block; }
+      @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+      .feature-card { background: linear-gradient(135deg, #1a1a1d 0%, #151517 100%); border: 1px solid #262629; transition: all 0.3s ease; }
+      .feature-card:hover { border-color: #3b82f6; transform: translateY(-2px); }
+    </style>
+  </head>
+  <body class="bg-[#0a0a0b] min-h-screen">
+    <div class="max-w-5xl mx-auto px-6 py-16">
+      <header class="mb-16">
+        <a href="changelog.html" class="text-blue-400 hover:text-blue-300 text-sm mb-6 inline-block transition-colors">&larr; Back to Changelog</a>
+        <h1 class="text-5xl font-bold text-white mt-4 tracking-tight">Changelog</h1>
+        <p class="text-slate-400 mt-3 text-lg">August 2026</p>
+
+        <!-- Tabs -->
+        <div class="flex gap-2 mt-8">
+          <button onclick="switchTab('product')" id="tab-product" class="tab-btn active px-5 py-2.5 rounded-lg border border-slate-700 text-slate-300 font-medium text-sm hover:border-slate-600">
+            Product
+          </button>
+          <button onclick="switchTab('technical')" id="tab-technical" class="tab-btn px-5 py-2.5 rounded-lg border border-slate-700 text-slate-300 font-medium text-sm hover:border-slate-600">
+            Technical
+          </button>
+        </div>
+      </header>
+
+      <!-- Product Changelog -->
+      <div id="content-product" class="tab-content active">
+
+        <div class="feature-card rounded-xl p-6">
+          <div class="flex items-start gap-4">
+            <div class="w-12 h-12 rounded-lg bg-blue-500/10 flex items-center justify-center flex-shrink-0">
+              <span class="text-2xl">⚡</span>
+            </div>
+            <div>
+              <h3 class="text-xl font-semibold text-white mb-2">Dramatically faster file transfers</h3>
+              <p class="text-slate-400 leading-relaxed">Parallel TCP streams, adaptive gzip compression and tuned buffers took a 10 MB transfer from ~16 s to ~0.3 s. Transfers auto-tune stream count by file size — no flags needed.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="feature-card rounded-xl p-6">
+          <div class="flex items-start gap-4">
+            <div class="w-12 h-12 rounded-lg bg-emerald-500/10 flex items-center justify-center flex-shrink-0">
+              <span class="text-2xl">🔐</span>
+            </div>
+            <div>
+              <h3 class="text-xl font-semibold text-white mb-2">Relay authentication & TLS</h3>
+              <p class="text-slate-400 leading-relaxed">Relays can now require a shared secret (<code class="text-blue-400">RELAY_SECRET</code>) and terminate TLS — opt-in and backward compatible, with an exempt-name list for nodes that must join without the secret.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="feature-card rounded-xl p-6">
+          <div class="flex items-start gap-4">
+            <div class="w-12 h-12 rounded-lg bg-purple-500/10 flex items-center justify-center flex-shrink-0">
+              <span class="text-2xl">🔑</span>
+            </div>
+            <div>
+              <h3 class="text-xl font-semibold text-white mb-2">Stronger pairing</h3>
+              <p class="text-slate-400 leading-relaxed">Activation keys gate who can claim a pair code, <code class="text-blue-400">pair disconnect</code> revokes a target, and a container sidecar endpoint lets Docker hosts onboard without a shell.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="feature-card rounded-xl p-6">
+          <div class="flex items-start gap-4">
+            <div class="w-12 h-12 rounded-lg bg-amber-500/10 flex items-center justify-center flex-shrink-0">
+              <span class="text-2xl">🏗️</span>
+            </div>
+            <div>
+              <h3 class="text-xl font-semibold text-white mb-2">Static binaries for Alpine</h3>
+              <p class="text-slate-400 leading-relaxed">Every release now ships <code class="text-blue-400">linux-*-static</code> builds that run on musl/Alpine containers where the dynamic binary can't.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="feature-card rounded-xl p-6">
+          <div class="flex items-start gap-4">
+            <div class="w-12 h-12 rounded-lg bg-rose-500/10 flex items-center justify-center flex-shrink-0">
+              <span class="text-2xl">🧪</span>
+            </div>
+            <div>
+              <h3 class="text-xl font-semibold text-white mb-2">CI coverage gate</h3>
+              <p class="text-slate-400 leading-relaxed">Tests run on every push with a 40% coverage floor — regressions get caught before release.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="feature-card rounded-xl p-6">
+          <div class="flex items-start gap-4">
+            <div class="w-12 h-12 rounded-lg bg-red-500/10 flex items-center justify-center flex-shrink-0">
+              <span class="text-2xl">🧹</span>
+            </div>
+            <div>
+              <h3 class="text-xl font-semibold text-white mb-2">Memory-leak fixes</h3>
+              <p class="text-slate-400 leading-relaxed">Closed writers on disconnect and cleared file-transfer reassembly on reconnect — long-lived daemons stay lean.</p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Technical Changelog -->
+      <div id="content-technical" class="tab-content">
+        <div class="space-y-8">
+
+        <section>
+          <h2 class="text-2xl font-semibold text-brand-400 mb-4 flex items-center gap-2">
+            <span>⚡</span> Performance
+          </h2>
+          <ul class="space-y-2 text-slate-300">
+            <li><span class="text-slate-500 text-sm mr-3">[08/08]</span>perf: stream from disk + larger socket buffers for cp</li>
+            <li><span class="text-slate-500 text-sm mr-3">[08/08]</span>perf: binary WebSocket frames for cp + stdin forwarding for exec</li>
+            <li><span class="text-slate-500 text-sm mr-3">[08/08]</span>perf: sample-based compression skip + TCP_NODELAY + buffer pooling</li>
+            <li><span class="text-slate-500 text-sm mr-3">[08/08]</span>perf: adaptive gzip compression for cp (10MB zeros: 16s → 0.3s)</li>
+            <li><span class="text-slate-500 text-sm mr-3">[09/08]</span>perf: async relay write queue + optimal 2MB chunk size</li>
+            <li><span class="text-slate-500 text-sm mr-3">[09/08]</span>perf: auto-tune parallel streams by file size + larger write queue</li>
+            <li><span class="text-slate-500 text-sm mr-3">[09/08]</span>perf: pool gzip.Writer objects to reduce GC pressure</li>
+            <li><span class="text-slate-500 text-sm mr-3">[09/08]</span>docs: buffer tuning research findings from expert references</li>
+
+          </ul>
+        </section>
+
+        <section>
+          <h2 class="text-2xl font-semibold text-emerald-400 mb-4 flex items-center gap-2">
+            <span>🚀</span> Features
+          </h2>
+          <ul class="space-y-2 text-slate-300">
+            <li><span class="text-slate-500 text-sm mr-3">[07/08]</span>feat: activation keys, pair disconnect, sidecar activate (v1.7.0)</li>
+            <li><span class="text-slate-500 text-sm mr-3">[10/08]</span>feat: relay shared secret + TLS env vars (opt-in, backward compatible)</li>
+            <li><span class="text-slate-500 text-sm mr-3">[10/08]</span>feat: relay secret exempt list + static binaries for Alpine</li>
+            <li><span class="text-slate-500 text-sm mr-3">[10/08]</span>feat: use gh CLI for authenticated GitHub API in update</li>
+            <li><span class="text-slate-500 text-sm mr-3">[09/08]</span>feat: parallel TCP streams for file transfers</li>
+
+          </ul>
+        </section>
+
+        <section>
+          <h2 class="text-2xl font-semibold text-red-400 mb-4 flex items-center gap-2">
+            <span>🐛</span> Bug Fixes
+          </h2>
+          <ul class="space-y-2 text-slate-300">
+            <li><span class="text-slate-500 text-sm mr-3">[14/08]</span>Fix relay+daemon memory leaks: closeWriter on disconnect, clear reassembly on reconnect</li>
+            <li><span class="text-slate-500 text-sm mr-3">[07/08]</span>fix: disconnect truly exits daemon (os.Exit) instead of reconnecting</li>
+            <li><span class="text-slate-500 text-sm mr-3">[07/08]</span>fix: daemon sends registered name (not os.Hostname) in pair message</li>
+            <li><span class="text-slate-500 text-sm mr-3">[10/08]</span>fix: pair retry backoff + 24h expiry to stop stale code spam</li>
+
+          </ul>
+        </section>
+
+        <section>
+          <h2 class="text-2xl font-semibold text-amber-400 mb-4 flex items-center gap-2">
+            <span>🧪</span> Tests & CI
+          </h2>
+          <ul class="space-y-2 text-slate-300">
+            <li><span class="text-slate-500 text-sm mr-3">[07/08]</span>test: integration tests for activation keys, disconnect, sidecar helpers</li>
+            <li><span class="text-slate-500 text-sm mr-3">[09/08]</span>ci: run tests + coverage gate at 40% floor</li>
+            <li><span class="text-slate-500 text-sm mr-3">[14/08]</span>refactor: split files over 500 LOC</li>
+            <li><span class="text-slate-500 text-sm mr-3">[14/08]</span>feat(mcp): speak the 2026-07-28 revision, dual-era</li>
+
+          </ul>
+        </section>
+
+        <section>
+          <h2 class="text-2xl font-semibold text-purple-400 mb-4 flex items-center gap-2">
+            <span>📚</span> Documentation
+          </h2>
+          <ul class="space-y-2 text-slate-300">
+            <li><span class="text-slate-500 text-sm mr-3">[07/08]</span>docs: calibrate remotecmd-cli skill with sidecar/pairing learnings</li>
+            <li><span class="text-slate-500 text-sm mr-3">[07/08]</span>docs: add remotecmd-sidecar skill documenting the sidecar feature</li>
+
+          </ul>
+        </section>
+
+        </div>
+      </div>
+    </div>
+
+    <script>
+      function switchTab(tab) {
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+        document.getElementById('content-' + tab).classList.add('active');
+        document.getElementById('tab-' + tab).classList.add('active');
+      }
+    </script>
+  </body>
+</html>

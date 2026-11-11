@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Changelog September 2026 - remotecmd</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+    <style>
+      body { font-family: 'Inter', system-ui, sans-serif; background-color: #0a0a0b; color: #e2e8f0; }
+      h1, h2, h3 { font-family: 'Geist', system-ui, sans-serif; }
+      .tab-btn { transition: all 0.2s ease; }
+      .tab-btn.active { background-color: #1a1a1d; border-color: #3b82f6; color: #fff; }
+      .tab-content { display: none; animation: fadeIn 0.3s ease; }
+      .tab-content.active { display: block; }
+      @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+      .feature-card { background: linear-gradient(135deg, #1a1a1d 0%, #151517 100%); border: 1px solid #262629; transition: all 0.3s ease; }
+      .feature-card:hover { border-color: #3b82f6; transform: translateY(-2px); }
+    </style>
+  </head>
+  <body class="bg-[#0a0a0b] min-h-screen">
+    <div class="max-w-5xl mx-auto px-6 py-16">
+      <header class="mb-16">
+        <a href="changelog.html" class="text-blue-400 hover:text-blue-300 text-sm mb-6 inline-block transition-colors">&larr; Back to Changelog</a>
+        <h1 class="text-5xl font-bold text-white mt-4 tracking-tight">Changelog</h1>
+        <p class="text-slate-400 mt-3 text-lg">September 2026</p>
+
+        <!-- Tabs -->
+        <div class="flex gap-2 mt-8">
+          <button onclick="switchTab('product')" id="tab-product" class="tab-btn active px-5 py-2.5 rounded-lg border border-slate-700 text-slate-300 font-medium text-sm hover:border-slate-600">
+            Product
+          </button>
+          <button onclick="switchTab('technical')" id="tab-technical" class="tab-btn px-5 py-2.5 rounded-lg border border-slate-700 text-slate-300 font-medium text-sm hover:border-slate-600">
+            Technical
+          </button>
+        </div>
+      </header>
+
+      <!-- Product Changelog -->
+      <div id="content-product" class="tab-content active">
+
+        <div class="feature-card rounded-xl p-6">
+          <div class="flex items-start gap-4">
+            <div class="w-12 h-12 rounded-lg bg-blue-500/10 flex items-center justify-center flex-shrink-0">
+              <span class="text-2xl">🪟</span>
+            </div>
+            <div>
+              <h3 class="text-xl font-semibold text-white mb-2">Windows 10/11 support</h3>
+              <p class="text-slate-400 leading-relaxed">Targets on Windows now work end-to-end — scheduled-task boot persistence, a Windows updater with rollback helper, and release binaries for amd64 and arm64.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="feature-card rounded-xl p-6">
+          <div class="flex items-start gap-4">
+            <div class="w-12 h-12 rounded-lg bg-emerald-500/10 flex items-center justify-center flex-shrink-0">
+              <span class="text-2xl">🔁</span>
+            </div>
+            <div>
+              <h3 class="text-xl font-semibold text-white mb-2">In-place daemon updates</h3>
+              <p class="text-slate-400 leading-relaxed"><code class="text-blue-400">daemon update</code> and <code class="text-blue-400">relay daemon update</code> upgrade the binary a running daemon actually executes and re-exec it in place — same PID, in-flight commands finish, no dropped registrations. Fleet-wide: <code class="text-blue-400">rcx --group</code>.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="feature-card rounded-xl p-6">
+          <div class="flex items-start gap-4">
+            <div class="w-12 h-12 rounded-lg bg-purple-500/10 flex items-center justify-center flex-shrink-0">
+              <span class="text-2xl">🏷️</span>
+            </div>
+            <div>
+              <h3 class="text-xl font-semibold text-white mb-2">Version transparency</h3>
+              <p class="text-slate-400 leading-relaxed">Daemons announce their version on register; <code class="text-blue-400">list-targets</code> shows a VERSION column, <code class="text-blue-400">help-json</code> catalogs every command, errors are typed JSON, and an embedded <code class="text-blue-400">guide</code> teaches agents the tool.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="feature-card rounded-xl p-6">
+          <div class="flex items-start gap-4">
+            <div class="w-12 h-12 rounded-lg bg-amber-500/10 flex items-center justify-center flex-shrink-0">
+              <span class="text-2xl">🛡️</span>
+            </div>
+            <div>
+              <h3 class="text-xl font-semibold text-white mb-2">Security hardening</h3>
+              <p class="text-slate-400 leading-relaxed">Relay now blocks target-name hijacking, token checks are constant-time, connections have keepalive pings, and dials/handshakes are time-bounded — a wedged node can't hold the relay hostage.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="feature-card rounded-xl p-6">
+          <div class="flex items-start gap-4">
+            <div class="w-12 h-12 rounded-lg bg-rose-500/10 flex items-center justify-center flex-shrink-0">
+              <span class="text-2xl">🩺</span>
+            </div>
+            <div>
+              <h3 class="text-xl font-semibold text-white mb-2">Relay operations</h3>
+              <p class="text-slate-400 leading-relaxed"><code class="text-blue-400">relay daemon start --host</code>, <code class="text-blue-400">/_health</code> endpoint, <code class="text-blue-400">daemon status --json</code>, and named <code class="text-blue-400">--name</code> daemon instances for running several daemons on one machine.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="feature-card rounded-xl p-6">
+          <div class="flex items-start gap-4">
+            <div class="w-12 h-12 rounded-lg bg-red-500/10 flex items-center justify-center flex-shrink-0">
+              <span class="text-2xl">🐛</span>
+            </div>
+            <div>
+              <h3 class="text-xl font-semibold text-white mb-2">Reliability sweep</h3>
+              <p class="text-slate-400 leading-relaxed">Tunnel reconnects instead of dying silently, updates verify sha256 and fail closed, static builds install correctly, and processes in other containers are never signalled.</p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Technical Changelog -->
+      <div id="content-technical" class="tab-content">
+        <div class="space-y-8">
+
+        <section>
+          <h2 class="text-2xl font-semibold text-brand-400 mb-4 flex items-center gap-2">
+            <span>🚀</span> Features
+          </h2>
+          <ul class="space-y-2 text-slate-300">
+            <li><span class="text-slate-500 text-sm mr-3">[06/09]</span>feat: Windows 10/11 support with boot persistence</li>
+            <li><span class="text-slate-500 text-sm mr-3">[24/09]</span>feat: help-json catalog, typed errors, embedded JSON guide</li>
+            <li><span class="text-slate-500 text-sm mr-3">[24/09]</span>feat: show each node's daemon version and warn on features it lacks</li>
+            <li><span class="text-slate-500 text-sm mr-3">[24/09]</span>feat: dev builds report 2.6.0-dev+<commit>; version cache follows upgrades</li>
+            <li><span class="text-slate-500 text-sm mr-3">[24/09]</span>feat: daemons announce their version on register; relay logs it</li>
+            <li><span class="text-slate-500 text-sm mr-3">[24/09]</span>feat(daemon): --name instances, keepalive, status --json; relay /_health, --host</li>
+            <li><span class="text-slate-500 text-sm mr-3">[24/09]</span>feat: daemon update / relay daemon update with in-place restart</li>
+            <li><span class="text-slate-500 text-sm mr-3">[24/09]</span>feat(update): Windows support and a rollback restart helper</li>
+            <li><span class="text-slate-500 text-sm mr-3">[24/09]</span>feat(update): --pid selects one daemon</li>
+            <li><span class="text-slate-500 text-sm mr-3">[24/09]</span>feat(secret): roll out a relay secret safely</li>
+
+          </ul>
+        </section>
+
+        <section>
+          <h2 class="text-2xl font-semibold text-red-400 mb-4 flex items-center gap-2">
+            <span>🐛</span> Bug Fixes
+          </h2>
+          <ul class="space-y-2 text-slate-300">
+            <li><span class="text-slate-500 text-sm mr-3">[25/09]</span>fix(secret): clients say why the relay refused them</li>
+            <li><span class="text-slate-500 text-sm mr-3">[24/09]</span>fix(tunnel): reconnect to the relay instead of dying silently</li>
+            <li><span class="text-slate-500 text-sm mr-3">[24/09]</span>fix(update): permission failures say to rerun with sudo</li>
+            <li><span class="text-slate-500 text-sm mr-3">[24/09]</span>fix(update): install the static Linux build; Windows finds its .exe</li>
+            <li><span class="text-slate-500 text-sm mr-3">[24/09]</span>fix(update): never touch processes in other containers</li>
+            <li><span class="text-slate-500 text-sm mr-3">[24/09]</span>fix(update): the fallback restart timer fires in ~2s, not up to a minute</li>
+            <li><span class="text-slate-500 text-sm mr-3">[24/09]</span>fix(update): restart onto the new binary, not the backup; verify units</li>
+            <li><span class="text-slate-500 text-sm mr-3">[24/09]</span>fix(update): fail closed when the release checksum cannot be verified</li>
+            <li><span class="text-slate-500 text-sm mr-3">[24/09]</span>fix: a replaced daemon exits; relay logs same-token takeovers</li>
+            <li><span class="text-slate-500 text-sm mr-3">[24/09]</span>fix(list-targets): size table columns to their content</li>
+            <li><span class="text-slate-500 text-sm mr-3">[23/09]</span>fix(net): bound relay dial (10s) and WebSocket handshake (15s)</li>
+            <li><span class="text-slate-500 text-sm mr-3">[22/09]</span>fix(config): trim whitespace when loading the daemon token</li>
+            <li><span class="text-slate-500 text-sm mr-3">[06/09]</span>fix(cli): an idle inherited stdin made every command hang</li>
+
+          </ul>
+        </section>
+
+        <section>
+          <h2 class="text-2xl font-semibold text-amber-400 mb-4 flex items-center gap-2">
+            <span>🛡️</span> Security
+          </h2>
+          <ul class="space-y-2 text-slate-300">
+            <li><span class="text-slate-500 text-sm mr-3">[22/09]</span>fix(relay): block target-name hijack, constant-time token checks, keepalive</li>
+
+          </ul>
+        </section>
+
+        <section>
+          <h2 class="text-2xl font-semibold text-purple-400 mb-4 flex items-center gap-2">
+            <span>🧪</span> Refactor & Tests
+          </h2>
+          <ul class="space-y-2 text-slate-300">
+            <li><span class="text-slate-500 text-sm mr-3">[24/09]</span>refactor: every CLI failure is a typed error; usage screens leave stdout</li>
+            <li><span class="text-slate-500 text-sm mr-3">[24/09]</span>test: move waitFor to an untagged helper file</li>
+            <li><span class="text-slate-500 text-sm mr-3">[24/09]</span>test: captureStdout restores os.Stdout even when the code under test exits</li>
+
+          </ul>
+        </section>
+
+        </div>
+      </div>
+    </div>
+
+    <script>
+      function switchTab(tab) {
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+        document.getElementById('content-' + tab).classList.add('active');
+        document.getElementById('tab-' + tab).classList.add('active');
+      }
+    </script>
+  </body>
+</html>
